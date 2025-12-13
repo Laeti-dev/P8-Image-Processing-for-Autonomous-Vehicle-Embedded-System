@@ -1,0 +1,7 @@
+img/*
+data/*
+models/*
+project_helpers/*
+outputs/*
+
+.env
