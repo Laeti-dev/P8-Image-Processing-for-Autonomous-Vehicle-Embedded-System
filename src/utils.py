@@ -80,3 +80,5 @@ def mask_to_colored(mask, color_map=None):
     for category_id, color in color_map.items():
         colored[mask == category_id] = color
     return colored
+
+
