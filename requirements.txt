@@ -1,6 +1,8 @@
 # Deep Learning
-tensorflow>=2.10.0,<2.16.0
-keras>=2.10.0,<3.0.0
+# Note: TensorFlow 2.16+ requires Keras 3.x
+# For Apple Silicon (M4 Pro) MPS support, TensorFlow >= 2.10.0 is required
+# Keras is automatically installed with TensorFlow in the correct version
+tensorflow>=2.10.0
 
 # Image Processing
 opencv-python>=4.6.0,<5.0.0

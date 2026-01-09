@@ -4,4 +4,13 @@ models/*
 project_helpers/*
 outputs/*
 
+.DS_Store
+
+src/__pycache__/*
+
+notebooks/__pycache__/*
+notebooks/logs/*
+notebooks/outputs/*
+notebooks/models/*
+notebooks/project_helpers/*
 .env

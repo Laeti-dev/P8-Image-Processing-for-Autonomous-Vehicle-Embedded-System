@@ -6,7 +6,7 @@ Development of embedded computer vision systems with the objective of gaining ex
 
 This project includes the development of an image segmentation system for autonomous vehicles with:
 - Semantic segmentation model (8 Cityscapes categories)
-- Prediction API (FastAPI/Flask)
+- Prediction API (FastAPI)
 - Web demonstration application
 - Complete technical documentation
 
