@@ -10,6 +10,90 @@ This project includes the development of an image segmentation system for autono
 - Web demonstration application
 - Complete technical documentation
 
+## 🚀 Setup
+
+### Virtual Environment Setup
+
+This project uses [UV](https://github.com/astral-sh/uv) for fast Python package management.
+
+1. **Install UV (if not already installed):**
+   ```bash
+   pip install uv
+   ```
+   Or follow the [official installation guide](https://github.com/astral-sh/uv#installation).
+
+2. **Create a virtual environment:**
+   ```bash
+   uv venv
+   ```
+
+3. **Activate the virtual environment:**
+   - On macOS/Linux:
+     ```bash
+     source .venv/bin/activate
+     ```
+   - On Windows:
+     ```bash
+     .venv\Scripts\activate
+     ```
+
+4. **Install dependencies:**
+   ```bash
+   uv pip install -r requirements.txt
+   ```
+
+5. **Deactivate the virtual environment (when done):**
+   ```bash
+   deactivate
+   ```
+   
+## 📊 Project Steps
+
+The project follows a structured development approach:
+
+1. **Data Exploration** - Analysis of the Cityscapes dataset structure, class distribution, and image characteristics
+2. **Model Development** - Implementation of U-Net architecture for semantic segmentation with data augmentation
+3. **Training Pipeline** - Model training with callbacks, metrics tracking, and visualization
+4. **API Development** - FastAPI-based prediction service for real-time inference
+5. **Web Application** - Streamlit-based demonstration interface for interactive predictions
+6. **Documentation** - Technical documentation and presentation materials
+
+## 🔍 Data Exploration
+
+The data exploration phase (`notebooks/01-data_exploration.ipynb`) provides a comprehensive analysis of the Cityscapes dataset:
+
+### Dataset Structure
+- **Training set**: 2,964 images across 18 cities
+- **Test set**: 1,525 images across 6 cities
+- **Image dimensions**: Standardized 1024×2048 pixels (2:1 aspect ratio)
+
+### Class Mapping
+The exploration notebook implements a mapping from the original 34 Cityscapes classes to 8 main categories:
+- **Void** (0): Unlabeled, ego vehicle, borders, and ignored regions
+- **Flat** (1): Road, sidewalk, parking, rail track
+- **Construction** (2): Building, wall, fence, guard rail, bridge, tunnel
+- **Object** (3): Pole, traffic sign, traffic light
+- **Nature** (4): Vegetation, terrain
+- **Sky** (5): Sky regions
+- **Human** (6): Person, rider
+- **Vehicle** (7): Car, truck, bus, motorcycle, bicycle, and other vehicles
+
+### Key Findings
+- **Class imbalance**: Significant imbalance detected (52.5× ratio between most and least frequent classes)
+  - Flat surfaces: ~39.3% of pixels
+  - Construction: ~22.9% of pixels
+  - Human class: ~0.75% of pixels (most underrepresented)
+- **Recommendations**: Use class weights or focal loss during training to handle imbalance
+
+### Utility Functions
+The notebook creates reusable utility functions for:
+- Loading Cityscapes images and masks
+- Converting 34-class masks to 8-category masks
+- Visualizing images with colored segmentation masks
+- Path management for dataset files
+
+These functions are exported to `src/utils.py` for use in the training pipeline.
+
 
 ### 📖 Resources
 
