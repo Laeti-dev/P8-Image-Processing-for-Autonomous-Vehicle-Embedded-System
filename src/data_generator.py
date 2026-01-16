@@ -10,6 +10,7 @@ import numpy as np
 import cv2
 from typing import List, Tuple, Optional
 from tensorflow import keras
+from sklearn.model_selection import train_test_split
 
 from src.utils import (
     IMAGES_DIR,
@@ -25,14 +26,18 @@ def create_partition(split: str = "train") -> List[Tuple[str, int, int]]:
     """
     Create a list of (city, sequence, frame) tuples for a given split.
 
+    Note: Only uses the "train" split from the dataset, as validation
+    images are not available in leftImg8bit.
+
     Args:
-        split: Dataset split ('train', 'val', or 'test')
+        split: Dataset split (only 'train' is used, regardless of this parameter)
 
     Returns:
         List of tuples (city, sequence, frame) representing all samples
     """
     partition = []
-    split_dir = IMAGES_DIR / split
+    # Always use "train" split since validation images don't exist
+    split_dir = IMAGES_DIR / "train"
 
     if not split_dir.exists():
         raise ValueError(f"Split directory {split_dir} does not exist")
@@ -212,38 +217,61 @@ class CityscapesDataGenerator(keras.utils.Sequence):
 
 
 def create_data_generators(
-    train_split: str = "train",
-    val_split: str = "val",
     batch_size: int = 32,
     dim: Tuple[int, int] = (512, 512),
     augmentation: Optional[callable] = None,
-    normalize: bool = True
+    normalize: bool = True,
+    validation_split: float = 0.2,
+    random_state: int = 42,
+    max_samples: Optional[int] = None
 ) -> Tuple[CityscapesDataGenerator, CityscapesDataGenerator]:
     """
     Create training and validation data generators.
 
     Args:
-        train_split: Training split name
-        val_split: Validation split name
         batch_size: Batch size
         dim: Target image dimensions (height, width)
         augmentation: Optional augmentation function (applied only to training)
         normalize: Whether to normalize images
+        validation_split: Fraction of data to use for validation (default: 0.2)
+        random_state: Random seed for reproducible train/val split
+        max_samples: Optional. If provided, only this many samples will be randomly
+                     selected from the full partition before splitting into train/val.
 
     Returns:
         Tuple of (training_generator, validation_generator)
     """
-    # Create partitions
-    train_partition = create_partition(train_split)
-    val_partition = create_partition(val_split)
+    # Create partition from training data
+    full_partition = create_partition("train")
 
+    # Optionally select a subset of samples
+    if max_samples is not None and max_samples < len(full_partition):
+        np.random.seed(random_state) # Ensure reproducibility for sample selection
+        # Select random indices and then use them to get the samples
+        indices = np.random.choice(len(full_partition), size=max_samples, replace=False)
+        full_partition = [full_partition[i] for i in indices]
+        print(f"Using a subset of {max_samples} samples from the full partition.")
+
+    # Split into train and validation
+    train_partition, val_partition = train_test_split(
+        full_partition,
+        test_size=validation_split,
+        random_state=random_state,
+        shuffle=True,
+        # Stratify by city to ensure representation across cities
+        # However, for stratify to work, each class must have at least 2 samples.
+        # If a city only has 1 image, stratify will fail. So we'll disable it for now.
+        # stratify=[p[0] for p in full_partition] if full_partition else None
+    )
+
+    print(f"Total samples used: {len(full_partition)}")
     print(f"Training samples: {len(train_partition)}")
     print(f"Validation samples: {len(val_partition)}")
 
     # Create generators
     training_generator = CityscapesDataGenerator(
         list_IDs=train_partition,
-        split=train_split,
+        split="train",
         batch_size=batch_size,
         dim=dim,
         shuffle=True,
@@ -253,7 +281,7 @@ def create_data_generators(
 
     validation_generator = CityscapesDataGenerator(
         list_IDs=val_partition,
-        split=val_split,
+        split="train",  # Use "train" split for both, but different data subsets
         batch_size=batch_size,
         dim=dim,
         shuffle=False,  # No need to shuffle validation
