@@ -6,11 +6,63 @@ Utility functions for Cityscapes dataset loading and processing.
 import numpy as np
 from pathlib import Path
 from PIL import Image
+import os
 
-# Dataset paths
-DATA_ROOT = Path("data/raw")
-IMAGES_DIR = DATA_ROOT / "leftImg8bit"
-MASKS_DIR = DATA_ROOT / "gtFine"
+# Determine project root directory
+# This file is in src/, so we go up one level to get project root
+# Handle case where __file__ might not be available (e.g., in some notebook environments)
+
+if 'COLAB_GPU' in os.environ or 'COLAB_JUPYTER_IP' in os.environ:
+    PROJECT_ROOT = Path("/content/dataset")
+else:
+    try:
+        PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+        # Try using __file__ first (works when imported as a module)
+    except (NameError, AttributeError):
+        # Fallback: try to find project root by looking for common markers
+        current_dir = Path(os.getcwd())
+        # If we're in notebooks/, go up one level first
+        if current_dir.name == "notebooks":
+            current_dir = current_dir.parent
+
+        # Look for project root markers (README.md, requirements.txt, src/, data/)
+        found_root = False
+        search_dir = current_dir
+        max_depth = 5  # Prevent infinite loops
+        depth = 0
+
+    while depth < max_depth and search_dir != search_dir.parent:
+        if ((search_dir / "README.md").exists() and
+            (search_dir / "requirements.txt").exists() and
+            (search_dir / "src").exists() and
+            (search_dir / "data").exists()):
+            PROJECT_ROOT = search_dir.resolve()
+            found_root = True
+            break
+        search_dir = search_dir.parent
+        depth += 1
+
+    if not found_root:
+        # Last resort: use current working directory (or parent if in notebooks/)
+        PROJECT_ROOT = current_dir.resolve()
+        if PROJECT_ROOT.name == "notebooks":
+            PROJECT_ROOT = PROJECT_ROOT.parent.resolve()
+
+# Dataset paths (relative to project root)
+# Ensure all paths are absolute
+DATA_ROOT = (PROJECT_ROOT / "data" / "raw").resolve()
+# For colab
+if not DATA_ROOT.exists() and Path("/content/dataset").exists():
+    DATA_ROOT = Path("/content/dataset")
+
+IMAGES_DIR = (DATA_ROOT / "leftImg8bit").resolve()
+MASKS_DIR = (DATA_ROOT / "gtFine").resolve()
+
+# Debug: Print paths when module is loaded (can be disabled in production)
+# Uncomment the following lines for debugging:
+# print(f"DEBUG: PROJECT_ROOT = {PROJECT_ROOT}")
+# print(f"DEBUG: IMAGES_DIR = {IMAGES_DIR}")
+# print(f"DEBUG: IMAGES_DIR exists = {IMAGES_DIR.exists()}")
 
 # Cityscapes class to category mapping
 CLASS_TO_CATEGORY = {
@@ -61,15 +113,16 @@ def load_mask(mask_path):
     mask = Image.open(mask_path)
     return np.array(mask)
 
+
 def convert_to_8_categories(mask):
     """Convert Cityscapes 34-class mask to 8-category mask."""
-    category_mask = np.zeros_like(mask, dtype=np.uint8)
-    for class_id, category_id in CLASS_TO_CATEGORY.items():
-        category_mask[mask == class_id] = category_id
-    unmapped = ~np.isin(mask, list(CLASS_TO_CATEGORY.keys()))
-    if unmapped.any():
-        category_mask[unmapped] = 0
-    return category_mask
+    # Lookup table
+    lut = np.zeros(256, dtype=np.uint8)
+    for class_id, cat_id in CLASS_TO_CATEGORY.items():
+        if class_id != -1:
+            lut[class_id] = cat_id
+
+    return lut[mask]
 
 def mask_to_colored(mask, color_map=None):
     """Convert category mask to colored visualization."""
@@ -80,5 +133,3 @@ def mask_to_colored(mask, color_map=None):
     for category_id, color in color_map.items():
         colored[mask == category_id] = color
     return colored
-
-
