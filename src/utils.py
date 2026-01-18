@@ -13,7 +13,7 @@ import os
 # Handle case where __file__ might not be available (e.g., in some notebook environments)
 
 if 'COLAB_GPU' in os.environ or 'COLAB_JUPYTER_IP' in os.environ:
-    PROJECT_ROOT = Path("/content/dataset")
+    PROJECT_ROOT = Path("/content/OC/Projets/P8/")
 else:
     try:
         PROJECT_ROOT = Path(__file__).parent.parent.resolve()
