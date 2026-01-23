@@ -3,6 +3,7 @@
 # For Apple Silicon (M4 Pro) MPS support, TensorFlow >= 2.10.0 is required
 # Keras is automatically installed with TensorFlow in the correct version
 tensorflow>=2.10.0
+tf-models-official
 
 # Image Processing
 opencv-python>=4.6.0,<5.0.0

@@ -1,15 +1,21 @@
 """
-U-Net architecture for semantic segmentation on Cityscapes dataset.
+U-Net and DeepLabV3 architectures for semantic segmentation on Cityscapes dataset.
 
-This module implements a U-Net model optimized for 8-category semantic
+This module implements U-Net and DeepLabV3 models optimized for 8-category semantic
 segmentation, with custom loss functions and metrics.
+
+Models available:
+- U-Net: Classic encoder-decoder architecture with skip connections
+- U-Net with MobileNetV2: U-Net using MobileNetV2 as encoder backbone
+- DeepLabV3: DeepLabV3 with MobileNetV2 backbone and ASPP module
+  (Based on TensorFlow Model Garden tutorial)
 """
 
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.applications import MobileNetV2
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 
 def conv_block(
@@ -308,3 +314,200 @@ def build_unet_mobilenet(
     model = keras.Model(inputs=inputs, outputs=outputs, name="U-Net-MobileNet")
 
     return model
+
+
+def aspp_block(
+    inputs: tf.Tensor,
+    filters: int = 256,
+    atrous_rates: List[int] = [6, 12, 18]
+) -> tf.Tensor:
+    """
+    Atrous Spatial Pyramid Pooling (ASPP) module for DeepLabV3.
+
+    The ASPP module captures multi-scale contextual information by applying
+    atrous convolutions with different dilation rates in parallel.
+
+    Args:
+        inputs: Input tensor
+        filters: Number of filters for each atrous convolution
+        atrous_rates: List of dilation rates for atrous convolutions
+
+    Returns:
+        Concatenated output tensor from all ASPP branches
+    """
+    # Image pooling branch (global average pooling + upsampling)
+    image_pool = layers.GlobalAveragePooling2D()(inputs)
+    # Reshape to (batch, 1, 1, channels) - use -1 to infer channels
+    image_pool = layers.Reshape((1, 1, -1))(image_pool)
+    image_pool = layers.Conv2D(
+        filters, 1, padding='same', kernel_initializer='he_normal'
+    )(image_pool)
+    image_pool = layers.BatchNormalization()(image_pool)
+    image_pool = layers.Activation('relu')(image_pool)
+
+    # Upsample to match input spatial dimensions
+    # Use Lambda to get target size from inputs tensor
+    image_pool = layers.Lambda(
+        lambda x: tf.image.resize(
+            x[0],
+            tf.shape(x[1])[1:3],
+            method='bilinear'
+        ),
+        name='aspp_image_pool_resize'
+    )([image_pool, inputs])
+
+    # Atrous convolution branches
+    atrous_branches = [image_pool]
+
+    # 1x1 convolution branch
+    branch_1x1 = layers.Conv2D(
+        filters, 1, padding='same', kernel_initializer='he_normal'
+    )(inputs)
+    branch_1x1 = layers.BatchNormalization()(branch_1x1)
+    branch_1x1 = layers.Activation('relu')(branch_1x1)
+    atrous_branches.append(branch_1x1)
+
+    # Atrous convolutions with different rates
+    for rate in atrous_rates:
+        branch = layers.Conv2D(
+            filters, 3,
+            padding='same',
+            dilation_rate=rate,
+            kernel_initializer='he_normal'
+        )(inputs)
+        branch = layers.BatchNormalization()(branch)
+        branch = layers.Activation('relu')(branch)
+        atrous_branches.append(branch)
+
+    # Concatenate all branches
+    output = layers.concatenate(atrous_branches, axis=-1)
+
+    # Final projection
+    output = layers.Conv2D(
+        filters, 1, padding='same', kernel_initializer='he_normal'
+    )(output)
+    output = layers.BatchNormalization()(output)
+    output = layers.Activation('relu')(output)
+    output = layers.Dropout(0.1)(output)
+
+    return output
+
+
+def build_deeplabv3(
+    input_shape: Tuple[int, int, int] = (512, 512, 3),
+    n_classes: int = 8,
+    backbone: str = "mobilenetv2",
+    alpha: float = 1.0,
+    weights: Optional[str] = "imagenet",
+    aspp_filters: int = 256,
+    aspp_rates: List[int] = [6, 12, 18],
+    activation: str = "softmax"
+) -> keras.Model:
+    """
+    Build a DeepLabV3 model for semantic segmentation.
+
+    DeepLabV3 uses Atrous Spatial Pyramid Pooling (ASPP) to capture multi-scale
+    contextual information. This implementation uses MobileNetV2 as the backbone
+    encoder, following the TensorFlow Model Garden tutorial.
+
+    Reference: https://www.tensorflow.org/tfmodels/vision/semantic_segmentation
+
+    Args:
+        input_shape: Shape of input images (height, width, channels)
+        n_classes: Number of output classes
+        backbone: Backbone architecture ('mobilenetv2' only for now)
+        alpha: Width multiplier for MobileNet (controls model size)
+               - 1.0: Full MobileNet (default)
+               - 0.75: 75% of filters
+               - 0.5: 50% of filters
+               - 0.35: 35% of filters (smallest)
+        weights: Pre-trained weights ('imagenet' or None)
+        aspp_filters: Number of filters in ASPP module
+        aspp_rates: List of dilation rates for ASPP atrous convolutions
+        activation: Final activation function ('softmax' for multi-class)
+
+    Returns:
+        Compiled Keras model
+    """
+    inputs = layers.Input(shape=input_shape)
+
+    # Load backbone encoder
+    if backbone == "mobilenetv2":
+        encoder = MobileNetV2(
+            input_tensor=inputs,
+            alpha=alpha,
+            weights=weights,
+            include_top=False
+        )
+        # Get the feature map from the last layer before global pooling
+        # MobileNetV2 output is at 1/32 resolution
+        encoder_output = encoder.output
+    else:
+        raise ValueError(f"Unsupported backbone: {backbone}. Only 'mobilenetv2' is supported.")
+
+    # Apply atrous convolution to increase feature map resolution
+    # Use atrous convolution to maintain receptive field while increasing resolution
+    # This is equivalent to output_stride=16 (instead of 32)
+    # MobileNetV2 output is at 1/32 resolution, we want 1/16 for ASPP
+    x = layers.Conv2D(
+        aspp_filters, 3,
+        padding='same',
+        dilation_rate=2,
+        kernel_initializer='he_normal'
+    )(encoder_output)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation('relu')(x)
+
+    # Apply ASPP module
+    x = aspp_block(x, filters=aspp_filters, atrous_rates=aspp_rates)
+
+    # Decoder: upsample to original resolution using bilinear interpolation
+    # DeepLabV3 typically uses bilinear upsampling (simpler and smoother than transpose conv)
+    target_height, target_width = input_shape[0], input_shape[1]
+    x = layers.Lambda(
+        lambda img: tf.image.resize(img, size=[target_height, target_width], method='bilinear'),
+        name='resize_to_input_size'
+    )(x)
+
+    # Output layer
+    outputs = layers.Conv2D(n_classes, 1, activation=activation, name='predictions')(x)
+
+    model = keras.Model(inputs=inputs, outputs=outputs, name="DeepLabV3")
+
+    return model
+
+
+def build_deeplabv3_mobilenet(
+    input_shape: Tuple[int, int, int] = (512, 512, 3),
+    n_classes: int = 8,
+    alpha: float = 1.0,
+    weights: Optional[str] = "imagenet",
+    aspp_filters: int = 256,
+    activation: str = "softmax"
+) -> keras.Model:
+    """
+    Build a DeepLabV3 model with MobileNetV2 backbone (convenience wrapper).
+
+    This is a convenience function that calls build_deeplabv3 with MobileNetV2
+    as the backbone, matching the TensorFlow Model Garden tutorial.
+
+    Args:
+        input_shape: Shape of input images (height, width, channels)
+        n_classes: Number of output classes
+        alpha: Width multiplier for MobileNet (controls model size)
+        weights: Pre-trained weights ('imagenet' or None)
+        aspp_filters: Number of filters in ASPP module
+        activation: Final activation function ('softmax' for multi-class)
+
+    Returns:
+        Compiled Keras model
+    """
+    return build_deeplabv3(
+        input_shape=input_shape,
+        n_classes=n_classes,
+        backbone="mobilenetv2",
+        alpha=alpha,
+        weights=weights,
+        aspp_filters=aspp_filters,
+        activation=activation
+    )
