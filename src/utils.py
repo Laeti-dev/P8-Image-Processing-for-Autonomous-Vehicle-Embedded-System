@@ -31,29 +31,30 @@ else:
         max_depth = 5  # Prevent infinite loops
         depth = 0
 
-    while depth < max_depth and search_dir != search_dir.parent:
-        if ((search_dir / "README.md").exists() and
-            (search_dir / "requirements.txt").exists() and
-            (search_dir / "src").exists() and
-            (search_dir / "data").exists()):
-            PROJECT_ROOT = search_dir.resolve()
-            found_root = True
-            break
-        search_dir = search_dir.parent
-        depth += 1
+        while depth < max_depth and search_dir != search_dir.parent:
+            if ((search_dir / "README.md").exists() and
+                (search_dir / "requirements.txt").exists() and
+                (search_dir / "src").exists() and
+                (search_dir / "data").exists()):
+                PROJECT_ROOT = search_dir.resolve()
+                found_root = True
+                break
+            search_dir = search_dir.parent
+            depth += 1
 
-    if not found_root:
-        # Last resort: use current working directory (or parent if in notebooks/)
-        PROJECT_ROOT = current_dir.resolve()
-        if PROJECT_ROOT.name == "notebooks":
-            PROJECT_ROOT = PROJECT_ROOT.parent.resolve()
+        if not found_root:
+            # Last resort: use current working directory (or parent if in notebooks/)
+            PROJECT_ROOT = current_dir.resolve()
+            if PROJECT_ROOT.name == "notebooks":
+                PROJECT_ROOT = PROJECT_ROOT.parent.resolve()
 
 # Dataset paths (relative to project root)
 # Ensure all paths are absolute
-DATA_ROOT = (PROJECT_ROOT / "data" / "raw").resolve()
-# For colab
-if not DATA_ROOT.exists() and Path(PROJECT_ROOT / "data" / "raw").exists():
-    DATA_ROOT = Path("/content/OC/Projets/P8/data/raw")
+# On Colab, always use the Google Drive path even if it doesn't exist yet
+if 'COLAB_GPU' in os.environ or 'COLAB_JUPYTER_IP' in os.environ:
+    DATA_ROOT = Path("/content/drive/MyDrive/OC/Projets/P8/data/raw")
+else:
+    DATA_ROOT = (PROJECT_ROOT / "data" / "raw").resolve()
 
 IMAGES_DIR = (DATA_ROOT / "leftImg8bit").resolve()
 MASKS_DIR = (DATA_ROOT / "gtFine").resolve()
