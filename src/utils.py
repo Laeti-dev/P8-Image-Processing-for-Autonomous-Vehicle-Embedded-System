@@ -13,7 +13,7 @@ import os
 # Handle case where __file__ might not be available (e.g., in some notebook environments)
 
 if 'COLAB_GPU' in os.environ or 'COLAB_JUPYTER_IP' in os.environ:
-    PROJECT_ROOT = Path("/content/OC/Projets/P8/")
+    PROJECT_ROOT = Path("/content/P8-Image-Processing-for-Autonomous-Vehicle-Embedded-System/")
 else:
     try:
         PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -52,8 +52,8 @@ else:
 # Ensure all paths are absolute
 DATA_ROOT = (PROJECT_ROOT / "data" / "raw").resolve()
 # For colab
-if not DATA_ROOT.exists() and Path("/content/OC/Projets/P8/data/raw").exists():
-    DATA_ROOT = Path("/content/OC/Projets/P8/data/raw")
+if not DATA_ROOT.exists() and Path(PROJECT_ROOT / "data" / "raw").exists():
+    DATA_ROOT = Path(PROJECT_ROOT / "data" / "raw")
 
 IMAGES_DIR = (DATA_ROOT / "leftImg8bit").resolve()
 MASKS_DIR = (DATA_ROOT / "gtFine").resolve()
