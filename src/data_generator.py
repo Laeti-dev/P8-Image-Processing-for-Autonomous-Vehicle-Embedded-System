@@ -35,9 +35,15 @@ def create_partition(split: str = "train") -> List[Tuple[str, int, int]]:
     Returns:
         List of tuples (city, sequence, frame) representing all samples
     """
+    from pathlib import Path
     partition = []
     # Always use "train" split since validation images don't exist
-    split_dir = IMAGES_DIR / "train"
+    # Ensure IMAGES_DIR is a Path object
+    if not isinstance(IMAGES_DIR, Path):
+        images_dir = Path(IMAGES_DIR)
+    else:
+        images_dir = IMAGES_DIR
+    split_dir = images_dir / "train"
 
     if not split_dir.exists():
         raise ValueError(f"Split directory {split_dir} does not exist")

@@ -54,10 +54,17 @@ else:
 if 'COLAB_GPU' in os.environ or 'COLAB_JUPYTER_IP' in os.environ:
     DATA_ROOT = Path("/content/drive/MyDrive/OC/Projets/P8/data/raw")
 else:
+    # Ensure PROJECT_ROOT is a Path object
+    if not isinstance(PROJECT_ROOT, Path):
+        PROJECT_ROOT = Path(PROJECT_ROOT)
     DATA_ROOT = (PROJECT_ROOT / "data" / "raw").resolve()
 
-IMAGES_DIR = (DATA_ROOT / "leftImg8bit").resolve()
-MASKS_DIR = (DATA_ROOT / "gtFine").resolve()
+# Ensure DATA_ROOT is a Path object
+if not isinstance(DATA_ROOT, Path):
+    DATA_ROOT = Path(DATA_ROOT)
+
+IMAGES_DIR = Path(DATA_ROOT / "leftImg8bit").resolve()
+MASKS_DIR = Path(DATA_ROOT / "gtFine").resolve()
 
 # Debug: Print paths when module is loaded (can be disabled in production)
 # Uncomment the following lines for debugging:
@@ -96,21 +103,37 @@ CATEGORY_COLORS = {
 
 def get_image_path(city, sequence, frame, split="train"):
     """Get path to an image file."""
+    # Ensure IMAGES_DIR is a Path object
+    if not isinstance(IMAGES_DIR, Path):
+        images_dir = Path(IMAGES_DIR)
+    else:
+        images_dir = IMAGES_DIR
     filename = f"{city}_{sequence:06d}_{frame:06d}_leftImg8bit.png"
-    return IMAGES_DIR / split / city / filename
+    return images_dir / split / city / filename
 
 def get_mask_path(city, sequence, frame, split="train"):
     """Get path to a labelIds mask file."""
+    # Ensure MASKS_DIR is a Path object
+    if not isinstance(MASKS_DIR, Path):
+        masks_dir = Path(MASKS_DIR)
+    else:
+        masks_dir = MASKS_DIR
     filename = f"{city}_{sequence:06d}_{frame:06d}_gtFine_labelIds.png"
-    return MASKS_DIR / split / city / filename
+    return masks_dir / split / city / filename
 
 def load_image(image_path):
     """Load an image as numpy array."""
+    # Ensure image_path is a Path object or string
+    if isinstance(image_path, Path):
+        image_path = str(image_path)
     img = Image.open(image_path)
     return np.array(img)
 
 def load_mask(mask_path):
     """Load a mask as numpy array."""
+    # Ensure mask_path is a Path object or string
+    if isinstance(mask_path, Path):
+        mask_path = str(mask_path)
     mask = Image.open(mask_path)
     return np.array(mask)
 
