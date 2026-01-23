@@ -52,8 +52,8 @@ else:
 # Ensure all paths are absolute
 DATA_ROOT = (PROJECT_ROOT / "data" / "raw").resolve()
 # For colab
-if not DATA_ROOT.exists() and Path("/content/dataset").exists():
-    DATA_ROOT = Path("/content/dataset")
+if not DATA_ROOT.exists() and Path("/content/OC/Projets/P8/data/raw").exists():
+    DATA_ROOT = Path("/content/OC/Projets/P8/data/raw")
 
 IMAGES_DIR = (DATA_ROOT / "leftImg8bit").resolve()
 MASKS_DIR = (DATA_ROOT / "gtFine").resolve()
