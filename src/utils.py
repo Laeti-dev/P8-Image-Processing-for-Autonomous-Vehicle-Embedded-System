@@ -50,8 +50,9 @@ else:
 
 # Dataset paths (relative to project root)
 # Ensure all paths are absolute
-# On Colab, always use the Google Drive path even if it doesn't exist yet
+# On Colab, always use the Google Drive path with data/raw structure
 if 'COLAB_GPU' in os.environ or 'COLAB_JUPYTER_IP' in os.environ:
+    # The zip file structure is data/raw/leftImg8bit and data/raw/gtFine
     DATA_ROOT = Path("/content/drive/MyDrive/OC/Projets/P8/data/raw")
 else:
     # Ensure PROJECT_ROOT is a Path object
