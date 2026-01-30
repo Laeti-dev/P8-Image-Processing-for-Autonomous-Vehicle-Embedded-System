@@ -8,6 +8,7 @@ and masks for semantic segmentation tasks.
 
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 from typing import List, Tuple, Optional
 from tensorflow import keras
 from sklearn.model_selection import train_test_split
@@ -18,7 +19,8 @@ from src.utils import (
     load_mask,
     convert_to_8_categories,
     get_image_path,
-    get_mask_path
+    get_mask_path,
+    mask_to_colored,
 )
 
 
@@ -94,7 +96,7 @@ class CityscapesDataGenerator(keras.utils.Sequence):
         n_classes: int = 8,
         shuffle: bool = True,
         augmentation: Optional[callable] = None,
-        normalize: bool = True
+        normalize: bool = True,
     ):
         """
         Initialize the data generator.
@@ -103,7 +105,7 @@ class CityscapesDataGenerator(keras.utils.Sequence):
             list_IDs: List of (city, sequence, frame) tuples
             split: Dataset split ('train', 'val', or 'test')
             batch_size: Number of samples per batch
-            dim: Target image dimensions (height, width)
+            dim: Target image dimensions (height, width); images are resized to dim when different.
             n_channels: Number of image channels
             n_classes: Number of segmentation classes
             shuffle: Whether to shuffle data after each epoch
@@ -157,6 +159,87 @@ class CityscapesDataGenerator(keras.utils.Sequence):
         if self.shuffle:
             np.random.shuffle(self.indexes)
 
+    def visualize_batch(
+        self,
+        batch_index: int = 0,
+        num_samples: Optional[int] = None,
+        show_original_then_resized: bool = False,
+        figsize: Optional[Tuple[float, float]] = None,
+        save_path: Optional[str] = None,
+    ) -> None:
+        """
+        Visualize a batch of images and their segmentation masks.
+
+        Args:
+            batch_index: Index of the batch to visualize (default: 0).
+            num_samples: Number of samples to show (default: min(4, batch_size)).
+            show_original_then_resized: If True and dim != original image size, show each sample
+                at original size (image | mask) then resized (image | mask). If False or sizes
+                match, only the resized batch is shown (image | mask).
+            figsize: Figure size (width, height). Auto-sized if None.
+            save_path: If provided, save the figure to this path.
+        """
+        n_show = num_samples if num_samples is not None else min(4, self.batch_size)
+        n_show = min(n_show, self.batch_size)
+
+        indexes = self.indexes[batch_index * self.batch_size : (batch_index + 1) * self.batch_size]
+        list_IDs_batch = [self.list_IDs[k] for k in indexes[:n_show]]
+
+        X, y = self[batch_index]
+        if self.normalize:
+            X_resized = (X[:n_show] * 255).astype(np.uint8)
+        else:
+            X_resized = X[:n_show].astype(np.uint8)
+        y_resized = y[:n_show]
+
+        need_originals = False
+        if show_original_then_resized:
+            X_orig_list, y_orig_list = [], []
+            for (city, sequence, frame) in list_IDs_batch:
+                img_path = get_image_path(city, sequence, frame, split=self.split)
+                mask_path = get_mask_path(city, sequence, frame, split=self.split)
+                img = load_image(img_path)
+                mask = load_mask(mask_path)
+                mask = convert_to_8_categories(mask)
+                X_orig_list.append(img)
+                y_orig_list.append(mask)
+            need_originals = any(a.shape[:2] != self.dim for a in X_orig_list)
+
+        if need_originals:
+            n_cols = 4
+            if figsize is None:
+                figsize = (16, 4 * n_show)
+            fig, axes = plt.subplots(n_show, n_cols, figsize=figsize, squeeze=False)
+            for i in range(n_show):
+                axes[i, 0].imshow(X_orig_list[i])
+                axes[i, 0].set_title("Image (original)")
+                axes[i, 0].axis("off")
+                axes[i, 1].imshow(mask_to_colored(y_orig_list[i]))
+                axes[i, 1].set_title("Mask (original)")
+                axes[i, 1].axis("off")
+                axes[i, 2].imshow(X_resized[i])
+                axes[i, 2].set_title("Image (resized)")
+                axes[i, 2].axis("off")
+                axes[i, 3].imshow(mask_to_colored(y_resized[i]))
+                axes[i, 3].set_title("Mask (resized)")
+                axes[i, 3].axis("off")
+        else:
+            n_cols = 2
+            if figsize is None:
+                figsize = (4 * n_show, 8)
+            fig, axes = plt.subplots(n_show, n_cols, figsize=figsize, squeeze=False)
+            for i in range(n_show):
+                axes[i, 0].imshow(X_resized[i])
+                axes[i, 0].set_title("Image")
+                axes[i, 0].axis("off")
+                axes[i, 1].imshow(mask_to_colored(y_resized[i]))
+                axes[i, 1].set_title("Mask")
+                axes[i, 1].axis("off")
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight", dpi=150)
+        plt.show()
+
     def __data_generation(
         self, list_IDs_temp: List[Tuple[str, int, int]]
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -187,7 +270,7 @@ class CityscapesDataGenerator(keras.utils.Sequence):
                 # Convert mask to 8 categories
                 mask = convert_to_8_categories(mask)
 
-                # Resize if needed
+                # Resize if dimensions differ from target dim
                 if image.shape[:2] != self.dim:
                     image = cv2.resize(image, (self.dim[1], self.dim[0]), interpolation=cv2.INTER_LINEAR)
                     mask = cv2.resize(mask, (self.dim[1], self.dim[0]), interpolation=cv2.INTER_NEAREST)
@@ -229,14 +312,14 @@ def create_data_generators(
     normalize: bool = True,
     validation_split: float = 0.2,
     random_state: int = 42,
-    max_samples: Optional[int] = None
+    max_samples: Optional[int] = None,
 ) -> Tuple[CityscapesDataGenerator, CityscapesDataGenerator]:
     """
     Create training and validation data generators.
 
     Args:
         batch_size: Batch size
-        dim: Target image dimensions (height, width)
+        dim: Target image dimensions (height, width); images are resized to dim when different.
         augmentation: Optional augmentation function (applied only to training)
         normalize: Whether to normalize images
         validation_split: Fraction of data to use for validation (default: 0.2)
@@ -282,7 +365,7 @@ def create_data_generators(
         dim=dim,
         shuffle=True,
         augmentation=augmentation,
-        normalize=normalize
+        normalize=normalize,
     )
 
     validation_generator = CityscapesDataGenerator(
@@ -292,7 +375,7 @@ def create_data_generators(
         dim=dim,
         shuffle=False,  # No need to shuffle validation
         augmentation=None,  # No augmentation for validation
-        normalize=normalize
+        normalize=normalize,
     )
 
     return training_generator, validation_generator
