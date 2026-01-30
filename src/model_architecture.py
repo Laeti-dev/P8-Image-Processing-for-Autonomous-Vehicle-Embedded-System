@@ -7,14 +7,15 @@ segmentation, with custom loss functions and metrics.
 Models available:
 - U-Net: Classic encoder-decoder architecture with skip connections
 - U-Net with MobileNetV2: U-Net using MobileNetV2 as encoder backbone
-- DeepLabV3: DeepLabV3 with MobileNetV2 backbone and ASPP module
+- U-Net with ResNet50: U-Net using ResNet50 as encoder backbone
+- DeepLabV3: DeepLabV3 with MobileNetV2 or ResNet50 backbone and ASPP module
   (Based on TensorFlow Model Garden tutorial)
 """
 
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.applications import MobileNetV2, ResNet50
 from typing import Tuple, Optional, List
 
 
@@ -270,7 +271,7 @@ def build_unet_mobilenet(
 
     # First upsampling: bottleneck (1/32) -> 1/16 to match skip_connections[3]
     x = layers.Conv2DTranspose(
-        decoder_filters, (2, 2), strides=(2, 2), padding="same"
+        decoder_filters, (3, 3), strides=(2, 2), padding="same"
     )(bottleneck)
 
     # Level 4: 1/16 -> 1/8 (with skip connection from 1/16)
@@ -279,21 +280,21 @@ def build_unet_mobilenet(
 
     # Level 3: 1/8 -> 1/4
     u2 = layers.Conv2DTranspose(
-        decoder_filters // 2, (2, 2), strides=(2, 2), padding="same"
+        decoder_filters // 2, (3, 3), strides=(2, 2), padding="same"
     )(c1)
     u2 = layers.concatenate([u2, skip_connections[2]])
     c2 = conv_block(u2, decoder_filters // 2)
 
     # Level 2: 1/4 -> 1/2
     u3 = layers.Conv2DTranspose(
-        decoder_filters // 4, (2, 2), strides=(2, 2), padding="same"
+        decoder_filters // 4, (3, 3), strides=(2, 2), padding="same"
     )(c2)
     u3 = layers.concatenate([u3, skip_connections[1]])
     c3 = conv_block(u3, decoder_filters // 4)
 
     # Level 1: 1/2 -> 1/1 (full resolution)
     u4 = layers.Conv2DTranspose(
-        decoder_filters // 8, (2, 2), strides=(2, 2), padding="same"
+        decoder_filters // 8, (3, 3), strides=(2, 2), padding="same"
     )(c3)
     u4 = layers.concatenate([u4, skip_connections[0]])
     c4 = conv_block(u4, decoder_filters // 8)
@@ -305,13 +306,114 @@ def build_unet_mobilenet(
     # Final resize to ensure output matches input size exactly
     # The decoder reaches 1/2 resolution (128x256), so we need to upsample by 2x
     # Use Lambda with tf.image.resize to force the resize operation
+    # target_height, target_width = input_shape[0], input_shape[1]
+    # outputs = layers.Lambda(
+    #     lambda x: tf.image.resize(x, size=[target_height, target_width], method='bilinear'),
+    #     name='resize_to_input_size'
+    # )(outputs)
+
+    model = keras.Model(inputs=inputs, outputs=outputs, name="U-Net-MobileNet")
+
+    return model
+
+
+def build_unet_resnet50(
+    input_shape: Tuple[int, int, int] = (512, 512, 3),
+    n_classes: int = 8,
+    dropout: float = 0.5,
+    activation: str = "softmax",
+    weights: Optional[str] = "imagenet",
+    decoder_filters: int = 256
+) -> keras.Model:
+    """
+    Build a U-Net model with ResNet50 backbone for semantic segmentation.
+
+    Uses ResNet50 as the encoder (downsampling path) and a custom decoder
+    (upsampling path) with skip connections. ResNet50 provides stronger
+    feature extraction than MobileNetV2 at the cost of more parameters.
+
+    Args:
+        input_shape: Shape of input images (height, width, channels)
+        n_classes: Number of output classes
+        dropout: Dropout rate in the decoder
+        activation: Final activation function ('softmax' for multi-class)
+        weights: Pre-trained weights ('imagenet' or None)
+        decoder_filters: Number of filters in the decoder layers
+
+    Returns:
+        Compiled Keras model
+    """
+    inputs = layers.Input(shape=input_shape)
+
+    # Load ResNet50 as encoder (backbone)
+    encoder = ResNet50(
+        input_tensor=inputs,
+        weights=weights,
+        include_top=False
+    )
+
+    # ResNet50 structure (include_top=False):
+    # - conv1_relu: 1/2 resolution
+    # - conv2_block3_out: 1/4 resolution
+    # - conv3_block4_out: 1/8 resolution
+    # - conv4_block6_out: 1/16 resolution
+    # - conv5_block3_out: 1/32 resolution (bottleneck)
+
+    skip_connection_names = [
+        "conv1_relu",        # 1/2
+        "conv2_block3_out",  # 1/4
+        "conv3_block4_out",  # 1/8
+        "conv4_block6_out",  # 1/16
+    ]
+
+    skip_connections = []
+    for layer_name in skip_connection_names:
+        try:
+            skip_connections.append(encoder.get_layer(layer_name).output)
+        except (ValueError, AttributeError) as e:
+            raise ValueError(
+                f"Layer '{layer_name}' not found in ResNet50. "
+                f"Available: {[ly.name for ly in encoder.layers[-30:]]}"
+            ) from e
+
+    bottleneck = encoder.output
+
+    # Decoder: 1/32 -> 1/16 -> 1/8 -> 1/4 -> 1/2 -> 1/1
+    x = layers.Conv2DTranspose(
+        decoder_filters, (2, 2), strides=(2, 2), padding="same"
+    )(bottleneck)
+
+    u1 = layers.concatenate([x, skip_connections[3]])
+    c1 = conv_block(u1, decoder_filters)
+
+    u2 = layers.Conv2DTranspose(
+        decoder_filters // 2, (2, 2), strides=(2, 2), padding="same"
+    )(c1)
+    u2 = layers.concatenate([u2, skip_connections[2]])
+    c2 = conv_block(u2, decoder_filters // 2)
+
+    u3 = layers.Conv2DTranspose(
+        decoder_filters // 4, (2, 2), strides=(2, 2), padding="same"
+    )(c2)
+    u3 = layers.concatenate([u3, skip_connections[1]])
+    c3 = conv_block(u3, decoder_filters // 4)
+
+    u4 = layers.Conv2DTranspose(
+        decoder_filters // 8, (2, 2), strides=(2, 2), padding="same"
+    )(c3)
+    u4 = layers.concatenate([u4, skip_connections[0]])
+    c4 = conv_block(u4, decoder_filters // 8)
+    c4 = layers.Dropout(dropout)(c4)
+
+    outputs = layers.Conv2D(n_classes, (1, 1), activation=activation)(c4)
+
     target_height, target_width = input_shape[0], input_shape[1]
     outputs = layers.Lambda(
         lambda x: tf.image.resize(x, size=[target_height, target_width], method='bilinear'),
         name='resize_to_input_size'
     )(outputs)
 
-    model = keras.Model(inputs=inputs, outputs=outputs, name="U-Net-MobileNet")
+    model = keras.Model(inputs=inputs, outputs=outputs, name="U-Net-ResNet50")
 
     return model
 
@@ -407,20 +509,15 @@ def build_deeplabv3(
     Build a DeepLabV3 model for semantic segmentation.
 
     DeepLabV3 uses Atrous Spatial Pyramid Pooling (ASPP) to capture multi-scale
-    contextual information. This implementation uses MobileNetV2 as the backbone
-    encoder, following the TensorFlow Model Garden tutorial.
+    contextual information. Supports MobileNetV2 or ResNet50 as backbone encoder.
 
     Reference: https://www.tensorflow.org/tfmodels/vision/semantic_segmentation
 
     Args:
         input_shape: Shape of input images (height, width, channels)
         n_classes: Number of output classes
-        backbone: Backbone architecture ('mobilenetv2' only for now)
-        alpha: Width multiplier for MobileNet (controls model size)
-               - 1.0: Full MobileNet (default)
-               - 0.75: 75% of filters
-               - 0.5: 50% of filters
-               - 0.35: 35% of filters (smallest)
+        backbone: Backbone architecture ('mobilenetv2' or 'resnet50')
+        alpha: Width multiplier for MobileNet only (ignored for ResNet50)
         weights: Pre-trained weights ('imagenet' or None)
         aspp_filters: Number of filters in ASPP module
         aspp_rates: List of dilation rates for ASPP atrous convolutions
@@ -439,11 +536,18 @@ def build_deeplabv3(
             weights=weights,
             include_top=False
         )
-        # Get the feature map from the last layer before global pooling
-        # MobileNetV2 output is at 1/32 resolution
+        encoder_output = encoder.output
+    elif backbone == "resnet50":
+        encoder = ResNet50(
+            input_tensor=inputs,
+            weights=weights,
+            include_top=False
+        )
         encoder_output = encoder.output
     else:
-        raise ValueError(f"Unsupported backbone: {backbone}. Only 'mobilenetv2' is supported.")
+        raise ValueError(
+            f"Unsupported backbone: {backbone}. Use 'mobilenetv2' or 'resnet50'."
+        )
 
     # Apply atrous convolution to increase feature map resolution
     # Use atrous convolution to maintain receptive field while increasing resolution
@@ -472,9 +576,44 @@ def build_deeplabv3(
     # Output layer
     outputs = layers.Conv2D(n_classes, 1, activation=activation, name='predictions')(x)
 
-    model = keras.Model(inputs=inputs, outputs=outputs, name="DeepLabV3")
+    model_name = f"DeepLabV3-{backbone}"
+    model = keras.Model(inputs=inputs, outputs=outputs, name=model_name)
 
     return model
+
+
+def build_deeplabv3_resnet50(
+    input_shape: Tuple[int, int, int] = (512, 512, 3),
+    n_classes: int = 8,
+    weights: Optional[str] = "imagenet",
+    aspp_filters: int = 256,
+    aspp_rates: List[int] = [6, 12, 18],
+    activation: str = "softmax"
+) -> keras.Model:
+    """
+    Build a DeepLabV3 model with ResNet50 backbone (convenience wrapper).
+
+    Args:
+        input_shape: Shape of input images (height, width, channels)
+        n_classes: Number of output classes
+        weights: Pre-trained weights ('imagenet' or None)
+        aspp_filters: Number of filters in ASPP module
+        aspp_rates: List of dilation rates for ASPP atrous convolutions
+        activation: Final activation function ('softmax' for multi-class)
+
+    Returns:
+        Compiled Keras model
+    """
+    return build_deeplabv3(
+        input_shape=input_shape,
+        n_classes=n_classes,
+        backbone="resnet50",
+        alpha=1.0,
+        weights=weights,
+        aspp_filters=aspp_filters,
+        aspp_rates=aspp_rates,
+        activation=activation
+    )
 
 
 def build_deeplabv3_mobilenet(
