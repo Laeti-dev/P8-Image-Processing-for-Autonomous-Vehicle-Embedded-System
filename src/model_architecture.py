@@ -15,7 +15,7 @@ Models available:
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.applications import MobileNetV2, ResNet50
+from tensorflow.keras.applications import MobileNetV2, ResNet34
 from typing import Tuple, Optional, List
 
 
@@ -196,14 +196,16 @@ def build_unet_mobilenet(
     activation: str = "softmax",
     alpha: float = 1.0,
     weights: Optional[str] = "imagenet",
-    decoder_filters: int = 256
+    decoder_filters: int = 256,
+    freeze_backbone: bool = True
 ) -> keras.Model:
     """
     Build a U-Net model with MobileNetV2 backbone for semantic segmentation.
 
     This architecture uses MobileNetV2 as the encoder (downsampling path) and
-    a custom decoder (upsampling path) with skip connections. This provides
-    better feature extraction while maintaining efficiency.
+    a custom decoder (upsampling path) with skip connections. A built-in
+    preprocessing layer converts inputs from [0, 1] to [-1, 1] as expected
+    by MobileNetV2 pretrained on ImageNet.
 
     Args:
         input_shape: Shape of input images (height, width, channels)
@@ -217,29 +219,47 @@ def build_unet_mobilenet(
                - 0.35: 35% of filters (smallest)
         weights: Pre-trained weights ('imagenet' or None)
         decoder_filters: Number of filters in the decoder layers
+        freeze_backbone: Whether to freeze encoder weights for transfer learning.
+                        When True, only the decoder is trained initially.
+                        Set to False for fine-tuning the entire model.
 
     Returns:
-        Compiled Keras model
+        Keras model
+
+    Note:
+        Feed images normalized to [0, 1] range (as done by CityscapesDataGenerator
+        with normalize=True). The model handles the conversion to [-1, 1] internally.
     """
     inputs = layers.Input(shape=input_shape)
 
+    # Preprocessing: MobileNetV2 pretrained on ImageNet expects inputs in [-1, 1].
+    # Our data pipeline (CityscapesDataGenerator) normalizes images to [0, 1],
+    # so we rescale here: [0, 1] -> [-1, 1] via x * 2.0 - 1.0
+    preprocessed = layers.Lambda(
+        lambda x: x * 2.0 - 1.0,
+        name='mobilenet_preprocess'
+    )(inputs)
+
     # Load MobileNetV2 as encoder (backbone)
-    # MobileNetV2 expects inputs in range [-1, 1] or [0, 1]
-    # We'll use include_top=False to get feature maps
     encoder = MobileNetV2(
-        input_tensor=inputs,
+        input_tensor=preprocessed,
         alpha=alpha,
         weights=weights,
         include_top=False
     )
 
-    # Extract skip connections from MobileNet layers
-    # MobileNetV2 structure:
-    # - block_1_expand_relu: 1/2 resolution
-    # - block_3_expand_relu: 1/4 resolution
-    # - block_6_expand_relu: 1/8 resolution
-    # - block_13_expand_relu: 1/16 resolution
-    # - block_16_project: 1/32 resolution (bottleneck)
+    # Freeze backbone for transfer learning: train only decoder first,
+    # then optionally unfreeze for fine-tuning with a lower learning rate.
+    if freeze_backbone:
+        encoder.trainable = False
+
+    # Extract skip connections from MobileNet intermediate layers
+    # MobileNetV2 structure (with input 512x512):
+    # - block_1_expand_relu:  256x256 (1/2 resolution)
+    # - block_3_expand_relu:  128x128 (1/4 resolution)
+    # - block_6_expand_relu:   64x64  (1/8 resolution)
+    # - block_13_expand_relu:  32x32  (1/16 resolution)
+    # - encoder.output:        16x16  (1/32 resolution, bottleneck)
 
     skip_connection_names = [
         'block_1_expand_relu',   # 1/2
@@ -248,76 +268,68 @@ def build_unet_mobilenet(
         'block_13_expand_relu',  # 1/16
     ]
 
-    # Get skip connection layers
     skip_connections = []
     for layer_name in skip_connection_names:
         try:
             skip_connections.append(encoder.get_layer(layer_name).output)
         except ValueError:
-            # If layer name doesn't exist, try to find by pattern
-            # This handles potential version differences in layer naming
             raise ValueError(
                 f"Layer '{layer_name}' not found in MobileNetV2. "
                 f"Available layers: {[layer.name for layer in encoder.layers[-20:]]}"
             )
 
-    # Bottleneck (output of MobileNet encoder)
+    # Bottleneck (output of MobileNet encoder) at 1/32 resolution
     bottleneck = encoder.output
 
     # Decoder (upsampling path)
-    # MobileNetV2 bottleneck is typically at 1/32 resolution
-    # We need 5 upsampling steps total: 1/32 -> 1/16 -> 1/8 -> 1/4 -> 1/2 -> 1/1
-    # Skip connections are at: 1/16, 1/8, 1/4, 1/2
+    # 5 upsampling steps to return to full resolution:
+    # 1/32 -> 1/16 -> 1/8 -> 1/4 -> 1/2 -> 1/1
+    # Skip connections at: 1/16, 1/8, 1/4, 1/2
 
-    # First upsampling: bottleneck (1/32) -> 1/16 to match skip_connections[3]
+    # Step 1: 1/32 -> 1/16 (with skip from block_13_expand_relu)
     x = layers.Conv2DTranspose(
         decoder_filters, (3, 3), strides=(2, 2), padding="same"
     )(bottleneck)
+    x = layers.concatenate([x, skip_connections[3]])
+    x = conv_block(x, decoder_filters)
 
-    # Level 4: 1/16 -> 1/8 (with skip connection from 1/16)
-    u1 = layers.concatenate([x, skip_connections[3]])
-    c1 = conv_block(u1, decoder_filters)
-
-    # Level 3: 1/8 -> 1/4
-    u2 = layers.Conv2DTranspose(
+    # Step 2: 1/16 -> 1/8 (with skip from block_6_expand_relu)
+    x = layers.Conv2DTranspose(
         decoder_filters // 2, (3, 3), strides=(2, 2), padding="same"
-    )(c1)
-    u2 = layers.concatenate([u2, skip_connections[2]])
-    c2 = conv_block(u2, decoder_filters // 2)
+    )(x)
+    x = layers.concatenate([x, skip_connections[2]])
+    x = conv_block(x, decoder_filters // 2)
 
-    # Level 2: 1/4 -> 1/2
-    u3 = layers.Conv2DTranspose(
+    # Step 3: 1/8 -> 1/4 (with skip from block_3_expand_relu)
+    x = layers.Conv2DTranspose(
         decoder_filters // 4, (3, 3), strides=(2, 2), padding="same"
-    )(c2)
-    u3 = layers.concatenate([u3, skip_connections[1]])
-    c3 = conv_block(u3, decoder_filters // 4)
+    )(x)
+    x = layers.concatenate([x, skip_connections[1]])
+    x = conv_block(x, decoder_filters // 4)
 
-    # Level 1: 1/2 -> 1/1 (full resolution)
-    u4 = layers.Conv2DTranspose(
+    # Step 4: 1/4 -> 1/2 (with skip from block_1_expand_relu)
+    x = layers.Conv2DTranspose(
         decoder_filters // 8, (3, 3), strides=(2, 2), padding="same"
-    )(c3)
-    u4 = layers.concatenate([u4, skip_connections[0]])
-    c4 = conv_block(u4, decoder_filters // 8)
-    c4 = layers.Dropout(dropout)(c4)
+    )(x)
+    x = layers.concatenate([x, skip_connections[0]])
+    x = conv_block(x, decoder_filters // 8)
 
-    # Output layer (before resize)
-    outputs = layers.Conv2D(n_classes, (1, 1), activation=activation)(c4)
+    # Step 5: 1/2 -> 1/1 (full resolution, no skip connection at this level)
+    x = layers.Conv2DTranspose(
+        decoder_filters // 8, (3, 3), strides=(2, 2), padding="same"
+    )(x)
+    x = conv_block(x, decoder_filters // 8)
+    x = layers.Dropout(dropout)(x)
 
-    # Final resize to ensure output matches input size exactly
-    # The decoder reaches 1/2 resolution (128x256), so we need to upsample by 2x
-    # Use Lambda with tf.image.resize to force the resize operation
-    # target_height, target_width = input_shape[0], input_shape[1]
-    # outputs = layers.Lambda(
-    #     lambda x: tf.image.resize(x, size=[target_height, target_width], method='bilinear'),
-    #     name='resize_to_input_size'
-    # )(outputs)
+    # Output layer
+    outputs = layers.Conv2D(n_classes, (1, 1), activation=activation)(x)
 
     model = keras.Model(inputs=inputs, outputs=outputs, name="U-Net-MobileNet")
 
     return model
 
 
-def build_unet_resnet50(
+def build_unet_resnet34(
     input_shape: Tuple[int, int, int] = (512, 512, 3),
     n_classes: int = 8,
     dropout: float = 0.5,
@@ -346,7 +358,7 @@ def build_unet_resnet50(
     inputs = layers.Input(shape=input_shape)
 
     # Load ResNet50 as encoder (backbone)
-    encoder = ResNet50(
+    encoder = ResNet34(
         input_tensor=inputs,
         weights=weights,
         include_top=False
