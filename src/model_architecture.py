@@ -15,7 +15,8 @@ Models available:
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.applications import MobileNetV2, ResNet34
+from tensorflow.keras.applications import MobileNetV2, ResNet50
+from
 from typing import Tuple, Optional, List
 
 
