@@ -86,7 +86,10 @@ class PredictionVisualizationCallback(keras.callbacks.Callback):
         self.frequency = frequency
         self.save_format = save_format
 
-        # Create output directory
+        # Create output directory (clean previous visualizations to avoid stale files)
+        if self.output_dir.exists():
+            for old_file in self.output_dir.glob(f"epoch_*.{self.save_format}"):
+                old_file.unlink()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Select samples to visualize
@@ -95,7 +98,7 @@ class PredictionVisualizationCallback(keras.callbacks.Callback):
         self.sample_masks = self.validation_masks[indices]
 
         print(f"Visualization callback initialized:")
-        print(f"  - Output directory: {self.output_dir}")
+        print(f"  - Output directory: {self.output_dir} (cleaned)")
         print(f"  - Number of samples: {self.num_samples}")
         print(f"  - Frequency: every {frequency} epochs")
 
@@ -387,7 +390,10 @@ class PredictionVisualizationFromGenerator(keras.callbacks.Callback):
         self.frequency = frequency
         self.save_format = save_format
 
-        # Create output directory
+        # Create output directory (clean previous visualizations to avoid stale files)
+        if self.output_dir.exists():
+            for old_file in self.output_dir.glob(f"epoch_*.{self.save_format}"):
+                old_file.unlink()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Get a batch from the generator
@@ -400,7 +406,7 @@ class PredictionVisualizationFromGenerator(keras.callbacks.Callback):
         self.sample_masks = self.sample_masks[indices]
 
         print(f"Visualization callback initialized (from generator):")
-        print(f"  - Output directory: {self.output_dir}")
+        print(f"  - Output directory: {self.output_dir} (cleaned)")
         print(f"  - Number of samples: {self.num_samples}")
         print(f"  - Frequency: every {frequency} epochs")
 
