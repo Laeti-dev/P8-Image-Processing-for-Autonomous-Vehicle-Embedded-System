@@ -613,7 +613,7 @@ class AzureUploadCallback(keras.callbacks.Callback):
         azure_manager = AzureStorageManager(container_name="training-outputs")
         azure_callback = AzureUploadCallback(
             azure_manager=azure_manager,
-            model_path="models/unet_cityscapes.h5",
+            model_path="models/unet_cityscapes.keras",
             output_dir="outputs/training_visualizations",
             logs_dir="logs",
             run_name="experiment_001"
@@ -732,7 +732,7 @@ class AzureModelCheckpoint(keras.callbacks.Callback):
         azure_manager = AzureStorageManager(container_name="training-outputs")
         azure_checkpoint = AzureModelCheckpoint(
             azure_manager=azure_manager,
-            blob_name="model/best_model.h5",
+            blob_name="model/best_model.keras",
             monitor='val_iou_coefficient',
             save_best_only=True,
             mode='max'
@@ -758,7 +758,7 @@ class AzureModelCheckpoint(keras.callbacks.Callback):
 
         Args:
             azure_manager: AzureStorageManager instance
-            blob_name: Name of the blob in Azure (e.g., "model/best_model.h5")
+            blob_name: Name of the blob in Azure (e.g., "model/best_model.keras")
             monitor: Metric to monitor (default: 'val_loss')
             verbose: Verbosity mode (0 or 1)
             save_best_only: If True, only save when monitor improves
@@ -860,7 +860,7 @@ class AzureModelCheckpoint(keras.callbacks.Callback):
             buffer = io.BytesIO()
 
             # Keras requires a file path, so we use a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.keras') as tmp_file:
                 tmp_path = tmp_file.name
 
             # Save model to temporary file

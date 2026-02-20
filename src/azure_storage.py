@@ -7,7 +7,7 @@ and other training outputs to Azure Blob Storage.
 
 import os
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Union
 import logging
 
 # Try to load environment variables from .env file
@@ -259,6 +259,46 @@ class AzureStorageManager:
             return blob_url
         except AzureError as e:
             logger.error(f"Failed to upload data to {blob_name}: {e}")
+            raise
+
+    def download_blob(
+        self,
+        blob_name: str,
+        local_path: Optional[str] = None
+    ) -> Union[bytes, Path]:
+        """
+        Download a blob from Azure Blob Storage.
+
+        Args:
+            blob_name: Name of the blob in Azure
+            local_path: If provided, save to this file path and return the Path.
+                        If None, return the raw bytes (useful for loading in memory).
+
+        Returns:
+            If local_path is provided: Path to the downloaded file.
+            Otherwise: bytes content of the blob.
+        """
+        try:
+            blob_client = self.blob_service_client.get_blob_client(
+                container=self.container_name,
+                blob=blob_name
+            )
+
+            download_stream = blob_client.download_blob()
+
+            if local_path is not None:
+                local_path = Path(local_path)
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(local_path, "wb") as f:
+                    f.write(download_stream.readall())
+                logger.info(f"Downloaded {blob_name} to {local_path}")
+                return local_path
+            else:
+                data = download_stream.readall()
+                logger.info(f"Downloaded {blob_name} ({len(data)} bytes to memory)")
+                return data
+        except AzureError as e:
+            logger.error(f"Failed to download {blob_name}: {e}")
             raise
 
     def upload_directory(
