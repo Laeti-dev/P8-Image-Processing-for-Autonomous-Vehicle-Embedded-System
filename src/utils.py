@@ -7,6 +7,8 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 import os
+import json
+from datetime import datetime
 
 # Determine project root directory
 # This file is in src/, so we go up one level to get project root
@@ -158,3 +160,50 @@ def mask_to_colored(mask, color_map=None):
     for category_id, color in color_map.items():
         colored[mask == category_id] = color
     return colored
+
+def update_global_best(history, model, run_name, path_to_save_global_best_model, path_to_save_global_best_metrics, path_to_load_global_best_metrics):
+    """
+    Updates the global best model if the current run achieves a higher validation IoU.
+    """
+    # Get the best validation IoU from the current run
+    if 'val_iou_coefficient' in history.history:
+        current_best_iou = np.max(history.history['val_iou_coefficient'])
+    else:
+        print("Warning: 'val_iou_coefficient' not found in history. Skipping global best update.")
+        return
+
+    # Check for existing global best
+    global_best_iou = 0.0
+    if os.path.exists(path_to_save_global_best_metrics):
+        try:
+            with open(path_to_save_global_best_metrics, 'r') as f:
+                data = json.load(f)
+                global_best_iou = data.get('val_iou_coefficient', 0.0)
+        except Exception as e:
+            print(f"Error reading global best metrics: {e}")
+
+    print(f"\nCurrent run best val_iou: {current_best_iou:.4f}")
+    print(f"Previous global best val_iou: {global_best_iou:.4f}")
+
+    # Update if current run is better
+    if current_best_iou > global_best_iou:
+        print("🏆 New global best model found! Saving...")
+        try:
+            # Save model
+            model.save(path_to_save_global_best_model)
+
+            # Save metrics
+            metrics_data = {
+                'val_iou_coefficient': float(current_best_iou),
+                'run_name': run_name,
+                'timestamp': datetime.now().isoformat()
+            }
+            with open(path_to_save_global_best_metrics, 'w') as f:
+                json.dump(metrics_data, f, indent=4)
+
+            print(f"✓ Global best model saved to {path_to_save_global_best_model}")
+            print(f"✓ Metrics saved to {path_to_save_global_best_metrics}")
+        except Exception as e:
+            print(f"Error saving global best model/metrics: {e}")
+    else:
+        print(f"Current run did not beat global best ({global_best_iou:.4f}).")

@@ -1028,3 +1028,149 @@ model.compile(
 - [TensorFlow Model Garden - Semantic Segmentation](https://www.tensorflow.org/tfmodels/vision/semantic_segmentation) - Tutorial officiel TensorFlow
 
 ---
+
+## Optimisation bayésienne des hyperparamètres avec Optuna
+
+### Contexte
+
+L'entraînement d'un modèle de deep learning requiert le réglage de nombreux hyperparamètres : learning rate, batch size, taux de fine-tuning, etc. La recherche manuelle (grid search) ou aléatoire (random search) peut être coûteuse en temps et en ressources, surtout lorsque chaque essai implique un entraînement complet. L'**optimisation bayésienne** propose une approche plus intelligente : elle utilise les résultats des essais passés pour guider les prochains, en s'inspirant de méthodes probabilistes pour estimer où se trouvent les meilleures combinaisons d'hyperparamètres.
+
+### Le principe de l'optimisation bayésienne
+
+#### Problème à résoudre
+
+On cherche à maximiser (ou minimiser) une fonction coûteuse \( f(x) \) — typiquement la performance d'un modèle (ex. IoU de validation) en fonction des hyperparamètres \( x \) — sans connaître sa forme analytique. Chaque évaluation de \( f \) est coûteuse car elle implique un entraînement complet.
+
+#### Idée centrale
+
+Au lieu de tester des hyperparamètres au hasard ou de manière exhaustive, l'optimisation bayésienne :
+
+1. **Modélise l'incertitude** : Elle construit un **modèle probabiliste** (ou "surrogate model") qui estime à la fois la valeur attendue de \( f \) et l'incertitude associée à chaque point de l'espace des hyperparamètres. En pratique, Optuna utilise souvent un **Tree-structured Parzen Estimator (TPE)** comme modèle.
+
+2. **Équilibre exploration et exploitation** : Elle choisit le prochain point à évaluer en **équilibrant** :
+   - **Exploitation** : tester des zones où le modèle prédit de bonnes performances ;
+   - **Exploration** : tester des zones où l'incertitude est élevée, pour ne pas manquer des optima inconnus.
+
+3. **Convergence plus rapide** : Grâce à ce guide probabiliste, elle converge généralement vers de bons hyperparamètres en **moins d'essais** que la recherche aléatoire ou la grille de recherche.
+
+#### Comparaison avec les autres méthodes
+
+| Méthode | Approche | Avantages | Inconvénients |
+|---------|----------|-----------|---------------|
+| **Grid search** | Teste toutes les combinaisons d'une grille | Exhaustif | Explosion combinatoire, très coûteux |
+| **Random search** | Teste des points aléatoires | Simple, parfois efficace | N'utilise pas les résultats passés |
+| **Optimisation bayésienne** | Utilise un modèle probabiliste pour guider les essais | Moins d'essais pour converger, exploite l'historique | Coût de calcul du modèle (négligeable vs entraînement) |
+
+### Fonctionnement de la librairie Optuna
+
+Optuna est une librairie d'optimisation bayésienne conçue pour le machine learning.
+
+#### Concepts clés d'Optuna
+
+1. **Study** : Une étude représente une session d'optimisation. Elle contient l'historique de tous les essais et le meilleur résultat trouvé.
+
+2. **Trial** : Un essai correspond à une évaluation de la fonction objectif avec une combinaison donnée d'hyperparamètres.
+
+3. **Objectif (objective)** : La fonction à optimiser. Elle prend un `trial` en entrée, suggère des hyperparamètres via `trial.suggest_*()`, exécute l'entraînement, et retourne la métrique à maximiser (ou minimiser).
+
+4. **Sampler** : Par défaut, Optuna utilise le sampler **TPE** (Tree-structured Parzen Estimator), qui est une variante d'optimisation bayésienne adaptée aux espaces d'hyperparamètres hiérarchiques ou mixtes (continus, catégoriels, entiers).
+
+#### Flux de travail typique
+
+```
+1. Définir la fonction objectif
+   └─ Pour chaque trial :
+       ├─ trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
+       ├─ trial.suggest_categorical("batch_size", [4, 8, 16])
+       ├─ Créer modèle + data generators avec ces paramètres
+       ├─ Entraîner le modèle
+       └─ Retourner la métrique (ex. val_iou_coefficient)
+
+2. Créer une étude
+   └─ study = optuna.create_study(direction="maximize")
+
+3. Lancer l'optimisation
+   └─ study.optimize(objective_fn, n_trials=N_TRIALS)
+
+4. Récupérer les meilleurs hyperparamètres
+   └─ study.best_params, study.best_value
+```
+
+### Application dans le notebook
+
+#### Configuration
+
+Dans le notebook, la section d'optimisation bayésienne est configurée comme suit :
+
+```python
+N_TRIALS = 20           # Nombre d'essais
+EPOCHS_PER_TRIAL = 10   # Époques par essai (réduit pour accélérer la recherche)
+```
+
+Chaque essai entraîne un modèle **de zéro** avec les hyperparamètres suggérés par Optuna. Pour limiter le temps de calcul, on utilise un nombre réduit d'époques par essai (10 au lieu de 20 par exemple).
+
+#### Hyperparamètres optimisés
+
+1. **`learning_rate`** : Log-uniforme entre 1e-5 et 1e-3, car le learning rate varie souvent sur plusieurs ordres de grandeur.
+
+2. **`batch_size`** : Catégoriel parmi [4, 8, 16], car ces valeurs sont des choix discrets.
+
+3. **`fine_tuning_lr`** : Log-uniforme entre 1e-6 et 1e-4, pour la phase de fine-tuning.
+
+#### Structure de la fonction objectif
+
+La fonction `create_optuna_objective()` crée une closure qui capture la configuration du notebook (augmentations, taille d'image, architecture, etc.). Pour chaque trial :
+
+1. **Suggestion des hyperparamètres** : `trial.suggest_float()` et `trial.suggest_categorical()` demandent à Optuna de proposer des valeurs.
+
+2. **Création des générateurs** : Les data generators sont créés avec le `batch_size` suggéré.
+
+3. **Construction du modèle** : Le modèle (U-Net ou U-Net + MobileNet) est construit selon la même architecture que le pipeline principal.
+
+4. **Entraînement** : Un entraînement court (Phase 1 uniquement) avec EarlyStopping pour éviter le surapprentissage.
+
+5. **Retour de la métrique** : Le meilleur `val_iou_coefficient` atteint pendant l'entraînement est retourné. Optuna maximise cette valeur.
+
+6. **Nettoyage** : Suppression du modèle et garbage collection pour libérer la mémoire GPU/RAM entre les essais.
+
+#### Lancer l'étude et récupérer les résultats
+
+```python
+study = optuna.create_study(direction="maximize", study_name=OPTIMIZATION_STUDY_NAME)
+study.optimize(objective_fn, n_trials=N_TRIALS, show_progress_bar=True, n_jobs=1)
+```
+
+- `direction="maximize"` : car on veut maximiser l'IoU de validation.
+- `n_jobs=1` : un seul essai à la fois (évite les conflits GPU et la saturation mémoire).
+
+Après l'optimisation, les meilleurs hyperparamètres sont utilisés pour un **entraînement final complet** (Phase 1 + Phase 2 si applicable), avec les callbacks habituels (ModelCheckpoint, EarlyStopping, etc.). Le modèle résultant est sauvegardé avec le suffixe `_optuna.keras`.
+
+#### Visualisation
+
+Optuna permet de visualiser les résultats :
+
+```python
+fig = optuna.visualization.plot_optimization_history(study)
+```
+
+Cette courbe montre l'évolution du meilleur objectif atteint au fur et à mesure des essais.
+
+### Points clés à retenir
+
+1. **Principe** : L'optimisation bayésienne modélise l'objectif de manière probabiliste et guide les essais pour explorer l'espace des hyperparamètres plus efficacement.
+
+2. **Optuna** : Librairie dédiée, avec Study, Trial, et fonction objectif. Le sampler TPE par défaut est adapté aux hyperparamètres mixtes.
+
+3. **Trade-off temps/qualité** : Réduire `EPOCHS_PER_TRIAL` accélère la recherche mais peut donner des estimations bruyantes. Un compromis est nécessaire.
+
+4. **Métrique cible** : Dans ce projet, on maximise `val_iou_coefficient` pour la segmentation.
+
+5. **Entraînement final** : L'optimisation ne fait que court-circuit. Les meilleurs hyperparamètres sont ensuite utilisés pour un entraînement complet avec tous les callbacks.
+
+### Références
+
+- [Optuna - A Hyperparameter Optimization Framework](https://optuna.readthedocs.io/) - Documentation officielle Optuna
+- [Algorithms for Hyper-Parameter Optimization](https://papers.nips.cc/paper/2011/hash/86e8f7ab32cfd12577bc2619bc635690-Abstract.html) - Bergstra et al., 2011 (TPE)
+- [Taking the Human Out of the Loop: A Review of Bayesian Optimization](https://www.cs.ox.ac.uk/people/nando.defreitas/publications/BayesOptLoop.pdf) - Shahriari et al., 2016
+
+---
