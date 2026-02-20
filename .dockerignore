@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.venv
+venv
+env
+
+# Data and heavy assets
+data/
+img/
+*.zip
+
+# Models (will be downloaded from Azure at runtime)
+models/
+
+# Notebooks (not needed for app)
+notebooks/
+
+# Outputs and logs
+outputs/
+logs/
+mlruns/
+
+# IDE and OS
+.idea
+.vscode
+.DS_Store
+
+# Env (secrets - use Azure env vars in prod)
+.env
+
+# Docs (optional - uncomment to exclude)
+# docs/
