@@ -207,3 +207,57 @@ def update_global_best(history, model, run_name, path_to_save_global_best_model,
             print(f"Error saving global best model/metrics: {e}")
     else:
         print(f"Current run did not beat global best ({global_best_iou:.4f}).")
+
+
+def get_global_best_info(metrics_path, model_path=None):
+    """
+    Load and return (or display) the current global best model info from the metrics file.
+
+    Args:
+        metrics_path: Path to global_best_metrics.json.
+        model_path: Optional path to the model file (used for existence check and display).
+
+    Returns:
+        dict with keys: val_iou_coefficient, run_name, timestamp, model_path, model_exists;
+        or None if no metrics file exists.
+    """
+    metrics_path = Path(metrics_path)
+    if not metrics_path.exists():
+        print("No global best metrics file found. No best model has been saved yet.")
+        return None
+    try:
+        with open(metrics_path, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Error reading global best metrics: {e}")
+        return None
+
+    model_path = Path(model_path) if model_path else metrics_path.parent / "global_best_model.keras"
+    info = {
+        "val_iou_coefficient": data.get("val_iou_coefficient"),
+        "run_name": data.get("run_name"),
+        "timestamp": data.get("timestamp"),
+        "model_path": str(model_path),
+        "model_exists": model_path.exists(),
+    }
+    return info
+
+
+def print_global_best_info(metrics_path, model_path=None):
+    """
+    Display the current global best model info in a readable format.
+
+    Args:
+        metrics_path: Path to global_best_metrics.json (e.g. GLOBAL_BEST_METRICS_PATH).
+        model_path: Optional path to the model file (default: same dir as metrics, global_best_model.keras).
+    """
+    info = get_global_best_info(metrics_path, model_path)
+    if info is None:
+        return
+    print("Current global best model:")
+    iou = info["val_iou_coefficient"]
+    print(f"  val_iou_coefficient: {iou:.4f}" if iou is not None else "  val_iou_coefficient: N/A")
+    print(f"  run_name:            {info['run_name']}")
+    print(f"  timestamp:           {info['timestamp']}")
+    print(f"  model_path:          {info['model_path']}")
+    print(f"  model_file_exists:   {info['model_exists']}")
