@@ -3,6 +3,7 @@ Custom Keras callbacks for training visualization and monitoring.
 
 This module provides callbacks to:
 - Visualize predictions during training
+- Visualize encoder feature maps at key training steps (first/last epoch, every N epochs)
 - Track training time per epoch and total training time
 - Log experiments to MLflow
 
@@ -42,8 +43,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from tensorflow import keras
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple, Union
 
+import tensorflow as tf
+from src.feature_maps import get_feature_map_model
 from src.utils import CATEGORY_COLORS, CATEGORY_NAMES, mask_to_colored
 
 
@@ -83,7 +86,10 @@ class PredictionVisualizationCallback(keras.callbacks.Callback):
         self.frequency = frequency
         self.save_format = save_format
 
-        # Create output directory
+        # Create output directory (clean previous visualizations to avoid stale files)
+        if self.output_dir.exists():
+            for old_file in self.output_dir.glob(f"epoch_*.{self.save_format}"):
+                old_file.unlink()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Select samples to visualize
@@ -92,7 +98,7 @@ class PredictionVisualizationCallback(keras.callbacks.Callback):
         self.sample_masks = self.validation_masks[indices]
 
         print(f"Visualization callback initialized:")
-        print(f"  - Output directory: {self.output_dir}")
+        print(f"  - Output directory: {self.output_dir} (cleaned)")
         print(f"  - Number of samples: {self.num_samples}")
         print(f"  - Frequency: every {frequency} epochs")
 
@@ -199,6 +205,158 @@ class PredictionVisualizationCallback(keras.callbacks.Callback):
         print(f"  Saved visualization: {output_path}")
 
 
+class FeatureMapVisualizationCallback(keras.callbacks.Callback):
+    """
+    Callback to visualize feature maps at key steps during training.
+
+    Builds a sub-model from the current training model to extract intermediate
+    layer activations (encoder stages) and saves visualizations at configurable
+    epochs: first epoch, every N epochs, and optionally at the last epoch.
+
+    Compatible with U-Net MobileNetV2, DeepLabV3 (MobileNetV2/ResNet50), and
+    U-Net; uses defaults for MobileNet-based models and falls back to first
+    Conv2D/activation layers for plain U-Net.
+    """
+
+    def __init__(
+        self,
+        validation_data: Optional[Union[Tuple[np.ndarray, np.ndarray], object]] = None,
+        validation_generator: Optional[object] = None,
+        output_dir: str = "outputs/feature_maps",
+        frequency: int = 5,
+        always_first_epoch: bool = True,
+        always_last_epoch: bool = True,
+        layer_names: Optional[List[str]] = None,
+        sample_idx: int = 0,
+        max_channels: int = 16,
+        figsize: Tuple[float, float] = (16, 12),
+        cmap: str = "viridis",
+        save_format: str = "png",
+    ):
+        """
+        Initialize the feature map visualization callback.
+
+        Args:
+            validation_data: Optional tuple (images, masks) to use for visualization.
+                            Only images are used; one sample is taken (sample_idx).
+            validation_generator: Optional data generator; first batch is used to get
+                                 a fixed batch of images. Ignored if validation_data
+                                 is provided.
+            output_dir: Directory to save feature map figures.
+            frequency: Visualize every N epochs (in addition to first/last if enabled).
+            always_first_epoch: If True, always visualize at epoch 1.
+            always_last_epoch: If True, visualize again at the end of training.
+            layer_names: Optional list of layer names to extract. If None, uses
+                         defaults for MobileNet-based models or first conv layers.
+            sample_idx: Index of the sample in the batch to visualize.
+            max_channels: Maximum number of channels to plot per layer.
+            figsize: Figure size (width, height).
+            cmap: Matplotlib colormap for feature maps (e.g. 'viridis', 'gray').
+            save_format: Image format ('png', 'jpg', etc.).
+        """
+        super().__init__()
+        if validation_data is not None:
+            self._images = validation_data[0]
+        elif validation_generator is not None:
+            batch = validation_generator[0]
+            self._images = batch[0] if isinstance(batch, (list, tuple)) else batch
+        else:
+            raise ValueError(
+                "Provide either validation_data (tuple of arrays) or validation_generator."
+            )
+        self.output_dir = Path(output_dir)
+        self.frequency = frequency
+        self.always_first_epoch = always_first_epoch
+        self.always_last_epoch = always_last_epoch
+        self.layer_names = layer_names
+        self.sample_idx = sample_idx
+        self.max_channels = max_channels
+        self.figsize = figsize
+        self.cmap = cmap
+        self.save_format = save_format
+        self._last_epoch: Optional[int] = None
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        print(
+            "Feature map visualization callback initialized:\n"
+            f"  - Output directory: {self.output_dir}\n"
+            f"  - Frequency: every {frequency} epoch(s)\n"
+            f"  - First epoch: {always_first_epoch}, Last epoch: {always_last_epoch}"
+        )
+
+    def _should_visualize(self, epoch: int) -> bool:
+        """Return True if we should visualize at this epoch (1-based)."""
+        step = epoch + 1
+        if self.always_first_epoch and step == 1:
+            return True
+        if self.frequency > 0 and step % self.frequency == 0:
+            return True
+        return False
+
+    def _visualize_feature_maps(self, epoch_label: str) -> None:
+        """Build feature model from current training model and save feature map plot."""
+        try:
+            feature_model, names_used = get_feature_map_model(
+                self.model, layer_names=self.layer_names
+            )
+        except ValueError as e:
+            print(f"  Feature map visualization skipped (epoch {epoch_label}): {e}")
+            return
+
+        batch = self._images
+        if isinstance(batch, tf.Tensor):
+            batch = batch.numpy()
+        if batch.ndim == 3:
+            batch = batch[np.newaxis, ...]
+        batch = batch[: self.sample_idx + 1]
+
+        activations = feature_model.predict(batch, verbose=0)
+        if not isinstance(activations, list):
+            activations = [activations]
+
+        n_layers = len(activations)
+        n_cols = self.max_channels
+        n_rows = n_layers
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=self.figsize)
+        if n_rows == 1:
+            axes = axes.reshape(1, -1)
+
+        for i, (name, act) in enumerate(zip(names_used, activations)):
+            if act.ndim == 3:
+                act = act[np.newaxis, ...]
+            feat = act[self.sample_idx]
+            n_ch = min(feat.shape[-1], n_cols)
+            for ch in range(n_cols):
+                ax = axes[i, ch]
+                if ch < n_ch:
+                    ax.imshow(feat[:, :, ch], cmap=self.cmap, aspect="auto")
+                    ax.set_title(f"{name[:20]} ch{ch}", fontsize=7)
+                ax.axis("off")
+        fig.suptitle(
+            f"Feature maps (sample {self.sample_idx}) — {epoch_label}",
+            fontsize=12,
+        )
+        plt.tight_layout()
+        save_path = self.output_dir / f"feature_maps_{epoch_label}.{self.save_format}"
+        fig.savefig(save_path, dpi=120, bbox_inches="tight")
+        plt.close(fig)
+        print(f"  Saved feature maps: {save_path}")
+
+    def on_epoch_end(self, epoch: int, logs: Optional[dict] = None):
+        """Visualize feature maps at configured epoch steps."""
+        self._last_epoch = epoch + 1
+        if not self._should_visualize(epoch):
+            return
+        epoch_label = f"epoch_{epoch + 1:03d}"
+        self._visualize_feature_maps(epoch_label)
+
+    def on_train_end(self, logs: Optional[dict] = None):
+        """Optionally visualize feature maps after the last epoch."""
+        if not self.always_last_epoch or self._last_epoch is None:
+            return
+        self._visualize_feature_maps("epoch_last")
+
+
 class PredictionVisualizationFromGenerator(keras.callbacks.Callback):
     """
     Callback to visualize predictions using a data generator.
@@ -232,7 +390,10 @@ class PredictionVisualizationFromGenerator(keras.callbacks.Callback):
         self.frequency = frequency
         self.save_format = save_format
 
-        # Create output directory
+        # Create output directory (clean previous visualizations to avoid stale files)
+        if self.output_dir.exists():
+            for old_file in self.output_dir.glob(f"epoch_*.{self.save_format}"):
+                old_file.unlink()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Get a batch from the generator
@@ -245,7 +406,7 @@ class PredictionVisualizationFromGenerator(keras.callbacks.Callback):
         self.sample_masks = self.sample_masks[indices]
 
         print(f"Visualization callback initialized (from generator):")
-        print(f"  - Output directory: {self.output_dir}")
+        print(f"  - Output directory: {self.output_dir} (cleaned)")
         print(f"  - Number of samples: {self.num_samples}")
         print(f"  - Frequency: every {frequency} epochs")
 
@@ -452,7 +613,7 @@ class AzureUploadCallback(keras.callbacks.Callback):
         azure_manager = AzureStorageManager(container_name="training-outputs")
         azure_callback = AzureUploadCallback(
             azure_manager=azure_manager,
-            model_path="models/unet_cityscapes.h5",
+            model_path="models/unet_cityscapes.keras",
             output_dir="outputs/training_visualizations",
             logs_dir="logs",
             run_name="experiment_001"
@@ -571,7 +732,7 @@ class AzureModelCheckpoint(keras.callbacks.Callback):
         azure_manager = AzureStorageManager(container_name="training-outputs")
         azure_checkpoint = AzureModelCheckpoint(
             azure_manager=azure_manager,
-            blob_name="model/best_model.h5",
+            blob_name="model/best_model.keras",
             monitor='val_iou_coefficient',
             save_best_only=True,
             mode='max'
@@ -597,7 +758,7 @@ class AzureModelCheckpoint(keras.callbacks.Callback):
 
         Args:
             azure_manager: AzureStorageManager instance
-            blob_name: Name of the blob in Azure (e.g., "model/best_model.h5")
+            blob_name: Name of the blob in Azure (e.g., "model/best_model.keras")
             monitor: Metric to monitor (default: 'val_loss')
             verbose: Verbosity mode (0 or 1)
             save_best_only: If True, only save when monitor improves
@@ -699,7 +860,7 @@ class AzureModelCheckpoint(keras.callbacks.Callback):
             buffer = io.BytesIO()
 
             # Keras requires a file path, so we use a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.keras') as tmp_file:
                 tmp_path = tmp_file.name
 
             # Save model to temporary file

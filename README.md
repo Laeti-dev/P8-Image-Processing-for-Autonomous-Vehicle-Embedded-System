@@ -46,6 +46,28 @@ This project uses [UV](https://github.com/astral-sh/uv) for fast Python package 
    ```bash
    deactivate
    ```
+
+## 🌐 Running the API
+
+The inference API loads the segmentation model from Azure at startup and serves `/health` and `/predict`.
+
+**Run from the project root:**
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+**Environment variables** (copy `.env.example` to `.env` and set):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AZURE_MODEL_BLOB_NAME` | Blob path of the model in Azure | `model/best_model.keras` |
+| `AZURE_CONTAINER_NAME` | Azure Blob Storage container name | `training-outputs` |
+| `AZURE_STORAGE_CONNECTION_STRING` | Full connection string (recommended) | — |
+| `AZURE_STORAGE_ACCOUNT_NAME` | Account name (if not using connection string) | — |
+| `AZURE_STORAGE_ACCOUNT_KEY` | Account key (if not using connection string) | — |
+
+- **GET /health** — Returns `{"status": "ok", "model_loaded": true/false}`.
+- **POST /predict** — Upload a PNG or JPEG image (max 20 MB); returns mask and colored mask as base64, plus categories.
    
 ## 📊 Project Steps
 

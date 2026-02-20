@@ -7,6 +7,8 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 import os
+import json
+from datetime import datetime
 
 # Determine project root directory
 # This file is in src/, so we go up one level to get project root
@@ -158,3 +160,104 @@ def mask_to_colored(mask, color_map=None):
     for category_id, color in color_map.items():
         colored[mask == category_id] = color
     return colored
+
+def update_global_best(history, model, run_name, path_to_save_global_best_model, path_to_save_global_best_metrics, path_to_load_global_best_metrics):
+    """
+    Updates the global best model if the current run achieves a higher validation IoU.
+    """
+    # Get the best validation IoU from the current run
+    if 'val_iou_coefficient' in history.history:
+        current_best_iou = np.max(history.history['val_iou_coefficient'])
+    else:
+        print("Warning: 'val_iou_coefficient' not found in history. Skipping global best update.")
+        return
+
+    # Check for existing global best
+    global_best_iou = 0.0
+    if os.path.exists(path_to_save_global_best_metrics):
+        try:
+            with open(path_to_save_global_best_metrics, 'r') as f:
+                data = json.load(f)
+                global_best_iou = data.get('val_iou_coefficient', 0.0)
+        except Exception as e:
+            print(f"Error reading global best metrics: {e}")
+
+    print(f"\nCurrent run best val_iou: {current_best_iou:.4f}")
+    print(f"Previous global best val_iou: {global_best_iou:.4f}")
+
+    # Update if current run is better
+    if current_best_iou > global_best_iou:
+        print("🏆 New global best model found! Saving...")
+        try:
+            # Save model
+            model.save(path_to_save_global_best_model)
+
+            # Save metrics
+            metrics_data = {
+                'val_iou_coefficient': float(current_best_iou),
+                'run_name': run_name,
+                'timestamp': datetime.now().isoformat()
+            }
+            with open(path_to_save_global_best_metrics, 'w') as f:
+                json.dump(metrics_data, f, indent=4)
+
+            print(f"✓ Global best model saved to {path_to_save_global_best_model}")
+            print(f"✓ Metrics saved to {path_to_save_global_best_metrics}")
+        except Exception as e:
+            print(f"Error saving global best model/metrics: {e}")
+    else:
+        print(f"Current run did not beat global best ({global_best_iou:.4f}).")
+
+
+def get_global_best_info(metrics_path, model_path=None):
+    """
+    Load and return (or display) the current global best model info from the metrics file.
+
+    Args:
+        metrics_path: Path to global_best_metrics.json.
+        model_path: Optional path to the model file (used for existence check and display).
+
+    Returns:
+        dict with keys: val_iou_coefficient, run_name, timestamp, model_path, model_exists;
+        or None if no metrics file exists.
+    """
+    metrics_path = Path(metrics_path)
+    if not metrics_path.exists():
+        print("No global best metrics file found. No best model has been saved yet.")
+        return None
+    try:
+        with open(metrics_path, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Error reading global best metrics: {e}")
+        return None
+
+    model_path = Path(model_path) if model_path else metrics_path.parent / "global_best_model.keras"
+    info = {
+        "val_iou_coefficient": data.get("val_iou_coefficient"),
+        "run_name": data.get("run_name"),
+        "timestamp": data.get("timestamp"),
+        "model_path": str(model_path),
+        "model_exists": model_path.exists(),
+    }
+    return info
+
+
+def print_global_best_info(metrics_path, model_path=None):
+    """
+    Display the current global best model info in a readable format.
+
+    Args:
+        metrics_path: Path to global_best_metrics.json (e.g. GLOBAL_BEST_METRICS_PATH).
+        model_path: Optional path to the model file (default: same dir as metrics, global_best_model.keras).
+    """
+    info = get_global_best_info(metrics_path, model_path)
+    if info is None:
+        return
+    print("Current global best model:")
+    iou = info["val_iou_coefficient"]
+    print(f"  val_iou_coefficient: {iou:.4f}" if iou is not None else "  val_iou_coefficient: N/A")
+    print(f"  run_name:            {info['run_name']}")
+    print(f"  timestamp:           {info['timestamp']}")
+    print(f"  model_path:          {info['model_path']}")
+    print(f"  model_file_exists:   {info['model_exists']}")
