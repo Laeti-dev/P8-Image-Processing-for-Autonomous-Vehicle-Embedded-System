@@ -106,7 +106,7 @@ async def predict(request: Request, file: UploadFile = File(...)) -> dict:
     try:
         predictor: SegmentationPredictor = request.app.state.predictor
         mask = predictor.predict_from_image(content)
-        colored_mask = predictor.predict_to_colored_mask(content)
+        colored_mask = predictor.color_predicted_mask(mask=mask)
     except Exception as e:
         raise HTTPException(
             status_code=500,

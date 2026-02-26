@@ -9,7 +9,7 @@ import io
 import os
 from pathlib import Path
 from typing import Optional, Union
-
+import logging
 import cv2
 import numpy as np
 from tensorflow import keras
@@ -125,6 +125,10 @@ class SegmentationPredictor:
         cache_name = f"cached_model{ext}"
         cache_path = self.cache_dir / cache_name
 
+        if cache_path.exists():
+            logging.info(f"Using cached model from {cache_path}")
+            return cache_path
+        
         try:
             azure_manager = AzureStorageManager(
                 container_name=self.azure_container_name,
@@ -202,18 +206,19 @@ class SegmentationPredictor:
         mask = np.argmax(predictions[0], axis=-1).astype(np.uint8)
         return mask
 
-    def predict_to_colored_mask(
+    def color_predicted_mask(
         self,
-        image: Union[np.ndarray, Path, str, bytes],
-        target_size: tuple[int, int] = DEFAULT_INPUT_SIZE,
+        mask: np.ndarray,
     ) -> np.ndarray:
         """
-        Run inference and return the mask as a colored RGB image for visualization.
+        Return the mask as a colored RGB image for visualization.
+
+        Args:
+            mask: Predicted mask as numpy array (H, W) with values 0-7 (class indices).
 
         Returns:
            Colored mask (H, W, 3), uint8, suitable for display.
         """
-        mask = self.predict_from_image(image, target_size=target_size)
         return mask_to_colored(mask)
 
 

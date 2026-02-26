@@ -10,17 +10,22 @@ Then from project root: streamlit run app/streamlit_app.py
 
 import os
 from pathlib import Path
+import io
+import base64
 
 import streamlit as st
 import numpy as np
 from PIL import Image
 from dotenv import load_dotenv
+import requests
 
 # Load .env from project root (parent of app/)
 _project_root = Path(__file__).resolve().parent.parent
 _env_path = _project_root / ".env"
 if _env_path.exists():
     load_dotenv(_env_path)
+
+API_URL = os.environ.get("API_URL")
 
 from src.predictor import SegmentationPredictor
 from src.utils import CATEGORY_NAMES, CATEGORY_COLORS
@@ -63,22 +68,51 @@ if uploaded_file is not None:
         st.image(image, width="stretch")
 
     if st.button("Predict", type="primary"):
-        with st.spinner("Loading model and running prediction..."):
-            try:
-                predictor = SegmentationPredictor(
-
-                    azure_blob_name=os.environ.get("AZURE_MODEL_BLOB_NAME", "model/best_model.keras"),
-                    azure_container_name=os.environ.get("AZURE_CONTAINER_NAME", "training-outputs"),
-                )
-                colored_mask = predictor.predict_to_colored_mask(image_bytes)
-                st.session_state.colored_mask = colored_mask
-            except FileNotFoundError as e:
-                st.error(str(e))
-                st.session_state.colored_mask = None
-            except Exception as e:
-                st.error(f"Prediction failed: {e}")
-                st.session_state.colored_mask = None
-                raise
+        if API_URL:
+            with st.spinner("Calling inference API..."):
+                try:
+                    endpoint = API_URL.rstrip("/") + "/predict"
+                    files = {
+                        "file": (
+                            uploaded_file.name,
+                            image_bytes,
+                            getattr(uploaded_file, "type", None) or "application/octet-stream",
+                        )
+                    }
+                    response = requests.post(endpoint, files=files, timeout=60)
+                    response.raise_for_status()
+                    data = response.json()
+                    colored_mask_b64 = data.get("colored_mask_base64")
+                    if not colored_mask_b64:
+                        st.error("API response did not contain 'colored_mask_base64'.")
+                        st.session_state.colored_mask = None
+                    else:
+                        colored_bytes = base64.b64decode(colored_mask_b64)
+                        colored_image = Image.open(io.BytesIO(colored_bytes)).convert("RGB")
+                        st.session_state.colored_mask = np.array(colored_image)
+                except requests.RequestException as e:
+                    st.error(f"API request failed: {e}")
+                    st.session_state.colored_mask = None
+                except Exception as e:
+                    st.error(f"Failed to process API response: {e}")
+                    st.session_state.colored_mask = None
+                    raise
+        else:
+            with st.spinner("Loading model and running prediction..."):
+                try:
+                    predictor = SegmentationPredictor(
+                        azure_blob_name=os.environ.get("AZURE_MODEL_BLOB_NAME", "model/best_model.keras"),
+                        azure_container_name=os.environ.get("AZURE_CONTAINER_NAME", "training-outputs"),
+                    )
+                    colored_mask = predictor.predict_to_colored_mask(image_bytes)
+                    st.session_state.colored_mask = colored_mask
+                except FileNotFoundError as e:
+                    st.error(str(e))
+                    st.session_state.colored_mask = None
+                except Exception as e:
+                    st.error(f"Prediction failed: {e}")
+                    st.session_state.colored_mask = None
+                    raise
 
     colored_mask = st.session_state.colored_mask
     if colored_mask is not None:

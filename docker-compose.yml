@@ -1,21 +1,29 @@
-# Run Streamlit + FastAPI with env vars from .env
+# Run Streamlit (frontend) + FastAPI (backend) with env vars from .env
 # Usage: docker compose up --build
 # Streamlit: http://localhost:8501  |  API: http://localhost:8001
 # (API on 8001 to avoid conflict with other apps using 8000)
 
 services:
-  app:
+  frontend:
     build:
       context: .
-      dockerfile: Dockerfile
-      args:
-        APP_MODE: both
+      dockerfile: app/frontend/Dockerfile
     env_file: .env
+    environment:
+      - API_URL=http://backend:8000
     ports:
       - "8501:8501"
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: .
+      dockerfile: app/backend/Dockerfile
+    env_file: .env
+    ports:
       - "8001:8000"
     volumes:
-      # Persist model cache so Azure download is reused between runs
       - models-cache:/app/models
 
 volumes:

@@ -1,0 +1,27 @@
+# Backend dependencies (API + inference: TF, OpenCV, Azure)
+
+# Deep Learning
+# Note: TensorFlow 2.16+ requires Keras 3.x
+# For Apple Silicon (M4 Pro) MPS support, TensorFlow >= 2.10.0 is required
+tensorflow>=2.10.0
+tf-models-official
+
+# Image Processing
+opencv-python>=4.6.0,<5.0.0
+Pillow>=9.0.0,<11.0.0
+numpy>=1.23.0,<2.0.0
+scipy>=1.9.0,<2.0.0
+imageio>=2.25.0,<3.0.0
+
+# API
+fastapi>=0.95.0,<1.0.0
+uvicorn[standard]>=0.20.0,<1.0.0
+python-multipart>=0.0.6,<1.0.0
+pydantic>=1.10.0,<3.0.0
+
+# Azure (optional, for deployment)
+azure-storage-blob>=12.14.0,<13.0.0
+azure-identity>=1.12.0,<2.0.0
+
+# Utilities
+python-dotenv>=1.0.0,<2.0.0
