@@ -10,6 +10,19 @@ This project includes the development of an image segmentation system for autono
 - Web demonstration application
 - Complete technical documentation
 
+**Project documentation** (plan, structure, Azure guide, etc.) is in the [docs/](docs/) directory.
+
+## 📁 Project Structure
+
+- **`app/`** — FastAPI inference API and Streamlit web app
+- **`src/`** — Core logic (model, data pipeline, callbacks, predictor)
+- **`notebooks/`** — Data exploration and training pipeline
+- **`data/raw/`** — Cityscapes dataset; **`data/samples/`** — Sample images for demos
+- **`models/`** — Trained models and checkpoints
+- **`outputs/`** — Logs (TensorBoard), MLflow runs, predictions, training visualizations
+- **`docs/`** — Project documentation
+- **`tests/`** — Pytest tests
+
 ## 🚀 Setup
 
 ### Virtual Environment Setup
@@ -37,10 +50,11 @@ This project uses [UV](https://github.com/astral-sh/uv) for fast Python package 
      .venv\Scripts\activate
      ```
 
-4. **Install dependencies:**
+4. **Install the project in editable mode** (recommended so `app` and `src` are importable):
    ```bash
-   uv pip install -r requirements.txt
+   uv pip install -e .
    ```
+   Or with requirements only: `uv pip install -r requirements.txt`
 
 5. **Deactivate the virtual environment (when done):**
    ```bash
@@ -51,7 +65,7 @@ This project uses [UV](https://github.com/astral-sh/uv) for fast Python package 
 
 The inference API loads the segmentation model from Azure at startup and serves `/health` and `/predict`.
 
-**Run from the project root:**
+**Run from the project root** (after `uv pip install -e .`):
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -68,7 +82,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 - **GET /health** — Returns `{"status": "ok", "model_loaded": true/false}`.
 - **POST /predict** — Upload a PNG or JPEG image (max 20 MB); returns mask and colored mask as base64, plus categories.
-   
+
+### Running tests
+
+After installing the project (`uv pip install -e .`), run from the project root:
+
+```bash
+pytest tests/ -v
+```
+
 ## 📊 Project Steps
 
 The project follows a structured development approach:

@@ -22,10 +22,8 @@ models/
 # Notebooks (not needed for app)
 notebooks/
 
-# Outputs and logs
+# Outputs and logs (outputs/logs, outputs/mlruns, etc.)
 outputs/
-logs/
-mlruns/
 
 # IDE and OS
 .idea

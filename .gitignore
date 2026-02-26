@@ -1,7 +1,6 @@
 img/*
 data/*
 models/*
-project_helpers/*
 outputs/*
 
 .DS_Store
@@ -9,11 +8,7 @@ outputs/*
 src/__pycache__/*
 
 notebooks/__pycache__/*
-notebooks/logs/*
-notebooks/outputs/*
-notebooks/models/*
-notebooks/project_helpers/*
 .env
 
-# MLflow
+# MLflow (use outputs/mlruns only)
 mlruns/

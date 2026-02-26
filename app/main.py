@@ -3,8 +3,8 @@ FastAPI application for semantic segmentation inference.
 
 Loads the model from Azure at startup and exposes /health and /predict endpoints.
 
-Run from project root:
-    uvicorn app.main:app --host 0.0.0.0 --port 8000
+Install the project first: uv pip install -e .  (or pip install -e .)
+Then from project root: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Environment variables (see .env.example):
     AZURE_MODEL_BLOB_NAME    Blob path of the model (default: model/best_model.keras)
@@ -14,22 +14,14 @@ Environment variables (see .env.example):
 
 import base64
 import os
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import cv2
-
-# Ensure project root is in path when running: uvicorn app.main:app
-_script_dir = Path(__file__).resolve().parent
-_project_root = _script_dir.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-os.chdir(_project_root)
-
 from dotenv import load_dotenv
 
-# Load environment variables from .env
+# Load .env from project root (parent of app/)
+_project_root = Path(__file__).resolve().parent.parent
 _env_path = _project_root / ".env"
 if _env_path.exists():
     load_dotenv(_env_path)
