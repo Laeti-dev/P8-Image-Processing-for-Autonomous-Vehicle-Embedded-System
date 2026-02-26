@@ -3,29 +3,24 @@ Streamlit application for semantic segmentation mask prediction.
 
 Upload an image and get a predicted segmentation mask using the model
 loaded from Azure Blob Storage.
+
+Install the project first: uv pip install -e .  (or pip install -e .)
+Then from project root: streamlit run app/streamlit_app.py
 """
 
 import os
-import sys
 from pathlib import Path
-
-# Ensure project root is in path when running: streamlit run app/streamlit_app.py
-_script_dir = Path(__file__).resolve().parent
-_project_root = _script_dir.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-os.chdir(_project_root)
 
 import streamlit as st
 import numpy as np
 from PIL import Image
-
 from dotenv import load_dotenv
 
-# Load environment variables from .env
-env_path = _project_root / ".env"
-if env_path.exists():
-    load_dotenv(env_path)
+# Load .env from project root (parent of app/)
+_project_root = Path(__file__).resolve().parent.parent
+_env_path = _project_root / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
 
 from src.predictor import SegmentationPredictor
 from src.utils import CATEGORY_NAMES, CATEGORY_COLORS
