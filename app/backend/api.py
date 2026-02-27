@@ -46,11 +46,11 @@ async def lifespan(app: FastAPI):
     model_loaded = False
     try:
         predictor.load_model()
-        model_loaded = True
-    except Exception:
-        # Fail gracefully: API can still run and return 503 on /predict
-        model_loaded = False
-    app.state.model_loaded = model_loaded
+        app.state.model_loaded = True
+        print("MODEL LOADED SUCCESSFULLY")
+    except Exception as e:
+        print("MODEL LOADING FAILED:", e)
+        raise e
     yield
     # Shutdown cleanup (optional)
 

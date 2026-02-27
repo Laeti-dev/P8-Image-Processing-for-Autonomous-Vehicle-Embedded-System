@@ -39,7 +39,6 @@ st.set_page_config(
 st.title("🖼️ Semantic Segmentation - Mask Prediction")
 st.markdown(
     "Upload an image to get a semantic segmentation mask (8 Cityscapes categories). "
-    "The model is loaded from Azure Blob Storage (configure via .env)."
 )
 
 

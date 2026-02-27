@@ -12,6 +12,7 @@ from typing import Optional, Union
 import logging
 import cv2
 import numpy as np
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 from tensorflow import keras
 
 from src.utils import PROJECT_ROOT, load_image, mask_to_colored
@@ -128,7 +129,7 @@ class SegmentationPredictor:
         if cache_path.exists():
             logging.info(f"Using cached model from {cache_path}")
             return cache_path
-        
+
         try:
             azure_manager = AzureStorageManager(
                 container_name=self.azure_container_name,
