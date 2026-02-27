@@ -72,13 +72,30 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 **Environment variables** (copy `.env.example` to `.env` and set):
 
+The project supports three ways to authenticate to Azure Blob Storage,
+used in this **priority order**:
+
+1. **Local development (recommended)** – connection string  
+2. **Fallback** – account name + key  
+3. **Production on Azure (recommended)** – Managed Identity with account name only  
+
+Core variables:
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AZURE_MODEL_BLOB_NAME` | Blob path of the model in Azure | `model/best_model.keras` |
 | `AZURE_CONTAINER_NAME` | Azure Blob Storage container name | `training-outputs` |
-| `AZURE_STORAGE_CONNECTION_STRING` | Full connection string (recommended) | — |
-| `AZURE_STORAGE_ACCOUNT_NAME` | Account name (if not using connection string) | — |
-| `AZURE_STORAGE_ACCOUNT_KEY` | Account key (if not using connection string) | — |
+| `AZURE_STORAGE_CONNECTION_STRING` | Full connection string for local dev (Option 1) | — |
+| `AZURE_STORAGE_ACCOUNT_NAME` | Storage account name (Options 2 and 3) | — |
+| `AZURE_STORAGE_ACCOUNT_KEY` | Storage account key (Option 2 only) | — |
+
+Recommended configuration by environment:
+
+| Environment | Recommended auth mode | Variables to set |
+|------------|------------------------|------------------|
+| Local dev  | Connection string      | `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_CONTAINER_NAME`, `AZURE_MODEL_BLOB_NAME` |
+| Dev/test Azure | Account name + key (fallback) | `AZURE_STORAGE_ACCOUNT_NAME`, `AZURE_STORAGE_ACCOUNT_KEY`, `AZURE_CONTAINER_NAME`, `AZURE_MODEL_BLOB_NAME` |
+| Prod Azure | Managed Identity       | `AZURE_STORAGE_ACCOUNT_NAME`, `AZURE_CONTAINER_NAME`, `AZURE_MODEL_BLOB_NAME` |
 
 - **GET /health** — Returns `{"status": "ok", "model_loaded": true/false}`.
 - **POST /predict** — Upload a PNG or JPEG image (max 20 MB); returns mask and colored mask as base64, plus categories.

@@ -185,7 +185,7 @@ if __name__ == "__main__":
 
 ---
 
-## 💾 Model Storage
+## 💾 Model Storage & Authentication
 
 ### Option 1: Include in Deployment
 - Limit: 1 GB on F1 tier
@@ -224,7 +224,7 @@ az storage blob upload \
   --overwrite
 ```
 
-#### Load in API
+#### Load in API (legacy example)
 ```python
 # In api/model_loader.py
 from azure.storage.blob import BlobServiceClient
@@ -237,6 +237,30 @@ def load_model_from_blob():
     # Download and load model
     # ...
 ```
+
+In the current project, Azure Blob Storage authentication is centralized in
+an `AzureStorageManager` class and uses the following **priority order**:
+
+1. **Local development (recommended)** – full connection string:  
+   - `AZURE_STORAGE_CONNECTION_STRING`
+2. **Fallback with explicit keys** – account name + key:  
+   - `AZURE_STORAGE_ACCOUNT_NAME` + `AZURE_STORAGE_ACCOUNT_KEY`
+3. **Production on Azure with Managed Identity (recommended)** – account name only:  
+   - `AZURE_STORAGE_ACCOUNT_NAME` (no connection string, no account key)
+
+When using Managed Identity:
+
+- Attach a system-assigned or user-assigned identity to your App Service / Container App.
+- Grant it an RBAC role on the storage account (e.g. `Storage Blob Data Reader`).
+- Configure only `AZURE_STORAGE_ACCOUNT_NAME` in the app settings.
+
+Summary by environment:
+
+| Environment        | Recommended auth mode     | Required variables                                                |
+|--------------------|---------------------------|-------------------------------------------------------------------|
+| Local development  | Connection string         | `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_CONTAINER_NAME`, `AZURE_MODEL_BLOB_NAME` |
+| Dev/test in Azure  | Account name + key (fallback) | `AZURE_STORAGE_ACCOUNT_NAME`, `AZURE_STORAGE_ACCOUNT_KEY`, `AZURE_CONTAINER_NAME`, `AZURE_MODEL_BLOB_NAME` |
+| Production Azure   | Managed Identity          | `AZURE_STORAGE_ACCOUNT_NAME`, `AZURE_CONTAINER_NAME`, `AZURE_MODEL_BLOB_NAME` |
 
 ---
 
